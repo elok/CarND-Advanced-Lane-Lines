@@ -12,17 +12,54 @@ Determine the curvature of the lane and vehicle position with respect to center.
 Warp the detected lane boundaries back onto the original image.
 Output visual display of the lane boundaries and numerical estimation of lane curvature and vehicle position.
 """
+import os
 import cv2
+import numpy as np
+import matplotlib.pyplot as plt
 
-def calibrate_camera():
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    ret, corners = cv2.findChessboardCorners(gray, (8, 6), None)
-    # Drawing detected corners on an image
-    img = cv2.drawChessboardCorners(img, (8, 6), corners, ret)
-    # Camera calibration, given object points, image points, and the shape of the grayscale image
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
-    # Undistorting a test image
-    dst = cv2.undistort(img, mtx, dist, None, mtx)
+# chessboard size 9x6
+
+def calibrate_camera(path):
+    nx = 9  # the number of inside corners in x
+    ny = 6  # the number of inside corners in y
+
+    # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
+    objp = np.zeros((ny * nx, 3), np.float32)
+    objp[:, :2] = np.mgrid[0:nx, 0:ny].T.reshape(-1, 2)
+
+    # Arrays to store object points and image points from all the images.
+    objpoints = []  # 3d points in real world space
+    imgpoints = []  # 2d points in image plane.
+
+    for image_file_name in os.listdir(path):
+        # Read image using opencv
+        img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
+        # Convert to gray
+        gray = cv2.cvtColor(img_data, cv2.COLOR_BGR2GRAY)
+        # Find chessboard corners
+        ret, corners = cv2.findChessboardCorners(gray, (nx, ny), None)
+
+        # If found, add object points, image points
+        if ret:
+            objpoints.append(objp)
+            imgpoints.append(corners)
+            # Drawing detected corners on an image
+            img = cv2.drawChessboardCorners(img_data, (nx, ny), corners, ret)
+
+            plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            plt.show()
+
+            # Camera calibration, given object points, image points, and the shape of the grayscale image
+            ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+
+            warped, M = corners_unwarp(img_data, nx=nx, ny=ny, mtx=mtx, dist=dist)
+
+            if warped != None:
+                plt.imshow(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
+                plt.show()
+
+        # # Undistorting a test image
+        # dst = cv2.undistort(img, mtx, dist, None, mtx)
 
 def perspective_transform():
     M = cv2.getPerspectiveTransform(src, dst)
@@ -38,6 +75,8 @@ def corners_unwarp(img, nx, ny, mtx, dist):
     gray = cv2.cvtColor(undist, cv2.COLOR_BGR2GRAY)
     # Search for corners in the grayscaled image
     ret, corners = cv2.findChessboardCorners(gray, (nx, ny), None)
+
+    warped, M = None, None
 
     if ret == True:
         # If we found corners, draw them! (just for fun)
@@ -86,5 +125,13 @@ def abs_sobel_thresh(img, orient='x', thresh_min=0, thresh_max=255):
     # Return the result
     return binary_output
 
+def run():
+    # Calibrate the camera (matrix)
+    # Distortion correction (coefficients)
+    # Color & Gradient threshold to create a binary image
+    # Perspective transform
+    pass
+
+
 if __name__ == '__main__':
-    calibrate_camera()
+    calibrate_camera(r'camera_cal/')
