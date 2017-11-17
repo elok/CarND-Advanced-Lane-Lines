@@ -44,22 +44,21 @@ def calibrate_camera(path):
             objpoints.append(objp)
             imgpoints.append(corners)
             # Drawing detected corners on an image
-            img = cv2.drawChessboardCorners(img_data, (nx, ny), corners, ret)
+            img_corners = cv2.drawChessboardCorners(img_data, (nx, ny), corners, ret)
 
-            plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    for image_file_name in os.listdir(path):
+
+        img_data = cv2.imread(os.path.join(path, image_file_name))
+
+        # Camera calibration, given object points, image points, and the shape of the grayscale image
+        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+
+        top_down, perspective_M = corners_unwarp(img_data, nx=nx, ny=ny, mtx=mtx, dist=dist)
+
+        if top_down != None:
+            plt.imshow(cv2.cvtColor(top_down, cv2.COLOR_BGR2RGB))
             plt.show()
 
-            # Camera calibration, given object points, image points, and the shape of the grayscale image
-            ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
-
-            warped, M = corners_unwarp(img_data, nx=nx, ny=ny, mtx=mtx, dist=dist)
-
-            if warped != None:
-                plt.imshow(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
-                plt.show()
-
-        # # Undistorting a test image
-        # dst = cv2.undistort(img, mtx, dist, None, mtx)
 
 def perspective_transform():
     M = cv2.getPerspectiveTransform(src, dst)
