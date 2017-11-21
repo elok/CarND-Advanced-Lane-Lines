@@ -232,7 +232,8 @@ def perspective_transform(img):
 def find_lane(binary_warped):
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
-    histogram = np.sum(binary_warped[binary_warped.shape[0] / 2:, :], axis=0)
+    # histogram = np.sum(binary_warped[binary_warped.shape[0] / 2:, :], axis=0)
+    histogram = np.sum(binary_warped[binary_warped.shape[0]//2:, :], axis=0)
     # Create an output image to draw on and  visualize the result
     out_img = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
     # Find the peak of the left and right halves of the histogram
@@ -311,11 +312,28 @@ def find_lane(binary_warped):
 
     out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
     out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
-    plt.imshow(out_img)
+    # plt.imshow(out_img)
+    # plt.plot(left_fitx, ploty, color='yellow')
+    # plt.plot(right_fitx, ploty, color='yellow')
+    # plt.xlim(0, 1280)
+    # plt.ylim(720, 0)
+
+    # Plot the result
+    f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
+    f.tight_layout()
+    ax1.imshow(binary_warped)
+    ax1.set_title('Binary Warped', fontsize=40)
+    # ax2.imshow(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
+    ax2.imshow(out_img)
     plt.plot(left_fitx, ploty, color='yellow')
     plt.plot(right_fitx, ploty, color='yellow')
     plt.xlim(0, 1280)
     plt.ylim(720, 0)
+    ax2.set_title('Histogram', fontsize=40)
+    # plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
+    plt.show()
+
+    pass
 
 def run():
     # Calibrate the camera (matrix)
