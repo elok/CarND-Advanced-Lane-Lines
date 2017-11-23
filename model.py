@@ -17,9 +17,13 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-# chessboard size 9x6
 
-def calibrate_camera(path):
+def calibrate_camera(path, img):
+    """
+    Chessboard size 9x6
+    :param path:
+    :return:
+    """
     nx = 9  # the number of inside corners in x
     ny = 6  # the number of inside corners in y
 
@@ -31,6 +35,7 @@ def calibrate_camera(path):
     objpoints = []  # 3d points in real world space
     imgpoints = []  # 2d points in image plane.
 
+    # Collect object points and image points from all the images
     for image_file_name in os.listdir(path):
         # Read image using opencv
         img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
@@ -44,20 +49,16 @@ def calibrate_camera(path):
             objpoints.append(objp)
             imgpoints.append(corners)
             # Drawing detected corners on an image
-            img_corners = cv2.drawChessboardCorners(img_data, (nx, ny), corners, ret)
+            # img_corners = cv2.drawChessboardCorners(img_data, (nx, ny), corners, ret)
 
-    for image_file_name in os.listdir(path):
+    # Convert to gray
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # Camera calibration, given object points, image points, and the shape of the grayscale image
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
 
-        img_data = cv2.imread(os.path.join(path, image_file_name))
+    top_down, perspective_M, undist = corners_unwarp(img, nx=nx, ny=ny, mtx=mtx, dist=dist)
 
-        # Camera calibration, given object points, image points, and the shape of the grayscale image
-        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
-
-        top_down, perspective_M = corners_unwarp(img_data, nx=nx, ny=ny, mtx=mtx, dist=dist)
-
-        if top_down != None:
-            plt.imshow(cv2.cvtColor(top_down, cv2.COLOR_BGR2RGB))
-            plt.show()
+    return top_down, perspective_M, undist
 
 
 # Define a function that takes an image, number of x and y points,
@@ -96,81 +97,7 @@ def corners_unwarp(img, nx, ny, mtx, dist):
         warped = cv2.warpPerspective(undist, M, img_size)
 
     # Return the resulting image and matrix
-    return warped, M
-
-# Define a function that takes an image, gradient orientation,
-# and threshold min / max values.
-def abs_sobel_thresh(img, orient='x', thresh_min=0, thresh_max=255):
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    # Apply x or y gradient with the OpenCV Sobel() function
-    # and take the absolute value
-    if orient == 'x':
-        abs_sobel = np.absolute(cv2.Sobel(gray, cv2.CV_64F, 1, 0))
-    if orient == 'y':
-        abs_sobel = np.absolute(cv2.Sobel(gray, cv2.CV_64F, 0, 1))
-    # Rescale back to 8 bit integer
-    scaled_sobel = np.uint8(255*abs_sobel/np.max(abs_sobel))
-    # Create a copy and apply the threshold
-    binary_output = np.zeros_like(scaled_sobel)
-    # Here I'm using inclusive (>=, <=) thresholds, but exclusive is ok too
-    binary_output[(scaled_sobel >= thresh_min) & (scaled_sobel <= thresh_max)] = 1
-
-    # Return the result
-    return binary_output
-
-# Define a function to return the magnitude of the gradient
-# for a given sobel kernel size and threshold values
-def mag_thresh(img, sobel_kernel=3, mag_thresh=(0, 255)):
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    # Take both Sobel x and y gradients
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
-    # Calculate the gradient magnitude
-    gradmag = np.sqrt(sobelx**2 + sobely**2)
-    # Rescale to 8 bit
-    scale_factor = np.max(gradmag)/255
-    gradmag = (gradmag/scale_factor).astype(np.uint8)
-    # Create a binary image of ones where threshold is met, zeros otherwise
-    binary_output = np.zeros_like(gradmag)
-    binary_output[(gradmag >= mag_thresh[0]) & (gradmag <= mag_thresh[1])] = 1
-
-    # Return the binary image
-    return binary_output
-
-
-# Define a function that applies Sobel x and y,
-# then computes the direction of the gradient
-# and applies a threshold.
-def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi / 2)):
-    # Apply the following steps to img
-    # 1) Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    # 2) Take the gradient in x and y separately
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=sobel_kernel)
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=sobel_kernel)
-    # 3) Take the absolute value of the x and y gradients
-    # 4) Use np.arctan2(abs_sobely, abs_sobelx) to calculate the direction of the gradient
-    absgraddir = np.arctan2(np.absolute(sobely), np.absolute(sobelx))
-    # 5) Create a binary mask where direction thresholds are met
-    binary_output = np.zeros_like(absgraddir)
-    # 6) Return this mask as your binary_output image
-    binary_output[(absgraddir >= thresh[0]) & (absgraddir <= thresh[1])] = 1
-
-    return binary_output
-
-# Define a function that thresholds the S-channel of HLS
-# Use exclusive lower bound (>) and inclusive upper (<=)
-def hls_select(img, thresh=(0, 255)):
-    # 1) Convert to HLS color space
-    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
-    # 2) Apply a threshold to the S channel
-    s_channel = hls[:, :, 2]
-    # 3) Return a binary image of threshold result
-    binary_output = np.zeros_like(s_channel)
-    binary_output[(s_channel > thresh[0]) & (s_channel <= thresh[1])] = 1
-    return binary_output
+    return warped, M, undist
 
 
 # Edit this function to create your own pipeline.
@@ -227,7 +154,7 @@ def perspective_transform(img):
     # # Warp an image using the perspective transform, M:
     warped = cv2.warpPerspective(img, M, img_size, flags=cv2.INTER_LINEAR)
 
-    return warped
+    return warped, Minv
 
 def find_lane(binary_warped):
     # Assuming you have created a warped binary image called "binary_warped"
@@ -423,42 +350,27 @@ def find_lane(binary_warped):
     print(left_curverad, 'm', right_curverad, 'm')
     # Example values: 632.1 m    626.2 m
 
-    # -----------------------------------------------------------------------------
-
-    # Create an image to draw the lines on
-    warp_zero = np.zeros_like(warped).astype(np.uint8)
-    color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
-
-    # Recast the x and y points into usable format for cv2.fillPoly()
-    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
-    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
-    pts = np.hstack((pts_left, pts_right))
-
-    # Draw the lane onto the warped blank image
-    cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
-
-    # Warp the blank back to original image space using inverse perspective matrix (Minv)
-    newwarp = cv2.warpPerspective(color_warp, Minv, (image.shape[1], image.shape[0]))
-    # Combine the result with the original image
-    result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
-    plt.imshow(result)
-
-    pass
+    return left_fitx, right_fitx, ploty
 
 
 def run():
-    # Calibrate the camera (matrix)
-    # Distortion correction (coefficients)
-    # Color & Gradient threshold to create a binary image
-    # Perspective transform
-    # Detect lane lines
-    # Determine the lane curvature
 
     path = r'test_images/'
 
     for image_file_name in os.listdir(path):
+        # Distortion correction (coefficients)
+
+        # Color & Gradient threshold to create a binary image
+        # Perspective transform
+        # Detect lane lines
+        # Determine the lane curvature
+
         # Read image using opencv
         img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
+
+        # Calibrate the camera (matrix)
+        top_down, perspective_M, undist = calibrate_camera(r'camera_cal/', img_data)
+
         binary = pipeline(img_data)
 
         # plt.imshow(cv2.cvtColor(binary, cv2.COLOR_BGR2RGB))
@@ -466,14 +378,14 @@ def run():
         # plt.show()
 
         # Perspective Transform
-        binary_warped = perspective_transform(binary)
+        binary_warped, Minv = perspective_transform(binary)
         r, g, b = cv2.split(binary_warped)
 
         # plt.imshow(g)
         # plt.show()
 
         # Find lane lines
-        binary_warped = find_lane(g)
+        left_fitx, right_fitx, ploty = find_lane(b)
 
         # Plot the result
         # f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
@@ -486,8 +398,30 @@ def run():
         # plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
         # plt.show()
 
-        # break
+        # -----------------------------------------------------------------------------
+        # OVERLAY
+        # -----------------------------------------------------------------------------
+
+        # Create an image to draw the lines on
+        warp_zero = np.zeros_like(g).astype(np.uint8)
+        color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+
+        # Recast the x and y points into usable format for cv2.fillPoly()
+        pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+        pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+        pts = np.hstack((pts_left, pts_right))
+
+        # Draw the lane onto the warped blank image
+        cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
+
+        # Warp the blank back to original image space using inverse perspective matrix (Minv)
+        newwarp = cv2.warpPerspective(color_warp, Minv, (img_data.shape[1], img_data.shape[0]))
+        # Combine the result with the original image
+        result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
+
+        plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+
+        pass
 
 if __name__ == '__main__':
-    # calibrate_camera(r'camera_cal/')
     run()
