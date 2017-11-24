@@ -16,7 +16,9 @@ import os
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-
+# Import everything needed to edit/save/watch video clips
+from moviepy.editor import VideoFileClip
+from IPython.display import HTML
 
 # Define a class to receive the characteristics of each line detection
 class Line():
@@ -381,7 +383,7 @@ def find_lane(binary_warped):
 
     return left_fitx, right_fitx, ploty
 
-def process_image(img_data):
+def draw_lane_lines(img_data):
     """
 
     :param img_data:
@@ -438,8 +440,7 @@ def process_image(img_data):
     # Combine the result with the original image
     result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
-    plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
-
+    return result
 
 def run_on_test_images():
     """
@@ -459,10 +460,32 @@ def run_on_test_images():
         # Read image using opencv
         img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
 
-        process_image(img_data)
+        result = draw_lane_lines(img_data)
 
-        break
+        plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+        plt.show()
 
+def process_image(image):
+    # NOTE: The output you return should be a color image (3 channel) for processing video below
+    # TODO: put your pipeline here,
+    # you should return the final output (image where lines are drawn on lanes)
+    img_final = draw_lane_lines(image)
+    return img_final
+
+def run_on_video():
+    white_output = 'project_video_output.mp4'
+    ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
+    ## To do so add .subclip(start_second,end_second) to the end of the line below
+    ## Where start_second and end_second are integer values representing the start and end of the subclip
+    ## You may also uncomment the following line for a subclip of the first 5 seconds
+    clip1 = VideoFileClip("project_video.mp4").subclip(0,1)
+    # clip1 = VideoFileClip("project_video.mp4")
+    import queue
+    q_left = queue.Queue()
+    q_right = queue.Queue()
+    white_clip = clip1.fl_image(process_image)  # NOTE: this function expects color images!!
+    white_clip.write_videofile(white_output, audio=False)
 
 if __name__ == '__main__':
-    run_on_test_images()
+    # run_on_test_images()
+    run_on_video()
