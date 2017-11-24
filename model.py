@@ -20,6 +20,10 @@ import matplotlib.pyplot as plt
 from moviepy.editor import VideoFileClip
 from IPython.display import HTML
 
+NX = 9  # the number of inside corners in x
+NY = 6  # the number of inside corners in y
+IMG_SIZE = (1280, 720)
+
 # Define a class to receive the characteristics of each line detection
 class Line():
     """
@@ -49,15 +53,12 @@ class Line():
         self.ally = None
 
 
-def calibrate_camera(path, img):
+def calibrate_camera(path, nx, ny, img_size):
     """
     Chessboard size 9x6
     :param path:
     :return:
     """
-    nx = 9  # the number of inside corners in x
-    ny = 6  # the number of inside corners in y
-
     # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
     objp = np.zeros((ny * nx, 3), np.float32)
     objp[:, :2] = np.mgrid[0:nx, 0:ny].T.reshape(-1, 2)
@@ -82,14 +83,48 @@ def calibrate_camera(path, img):
             # Drawing detected corners on an image
             # img_corners = cv2.drawChessboardCorners(img_data, (nx, ny), corners, ret)
 
-    # Convert to gray
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    if (len(objpoints) == 0 or len(imgpoints) == 0):
+        raise Exception("Calibration Failed")
+
     # Camera calibration, given object points, image points, and the shape of the grayscale image
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+    ret, cameraMatrix, distortionCoeffs, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, img_size, None, None)
 
-    top_down, perspective_M, undist = corners_unwarp(img, nx=nx, ny=ny, mtx=mtx, dist=dist)
+    # top_down, perspective_M, undist = corners_unwarp(img, nx=nx, ny=ny, mtx=mtx, dist=dist)
 
-    return top_down, perspective_M, undist
+    # Now you will use the cameraMatrix and distortionCoeffs, calculated above, for the rest of your project assuming
+    # that the same camera is used on the car to record images of the road.
+    return cameraMatrix, distortionCoeffs
+
+def setup_perspective_transform_matrix(img_path):
+    """
+    For perspective transform, you need to use a lane image where you think the two lanes are straight and then
+    you project them to a rectangular shape. I think this process is well explained in the classroom. Once you get
+    the perspective transform matrix, you use it for all the other images and video processing.
+
+    The M & M_inv matrices need to be calculated only once using any one of the test images. You will use these same
+    matrices for all your images and video. Allow me to elaborate.
+
+    The perspective transform only depends on the orientation of the camera relative to the car. As long as this remains
+    the same, you can use the same M matrix. Since the camera remains in the same position on the car throughout the
+    video, you can use the same M matrix. The test images are subset of video frames, so you can use any one of the
+    test images to compute the M matrix.
+    :return:
+    """
+    # Read image using opencv
+    img_data = cv2.imread(os.path.join(img_path, 'straight_lines1.jpg'))  # BGR
+
+    binary = pipeline(img_data)
+    plt.imshow(cv2.cvtColor(binary, cv2.COLOR_BGR2RGB))
+    plt.imshow(binary)
+    plt.show()
+
+    # Perspective Transform
+    binary_warped, Minv = perspective_transform(binary)
+    # plt.imshow(cv2.cvtColor(binary_warped, cv2.COLOR_BGR2RGB))
+    # plt.imshow(binary_warped)
+    # plt.show()
+
+    return Minv
 
 
 # Define a function that takes an image, number of x and y points,
@@ -133,6 +168,13 @@ def corners_unwarp(img, nx, ny, mtx, dist):
 
 # Edit this function to create your own pipeline.
 def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
+    """
+
+    :param img:
+    :param s_thresh:
+    :param sx_thresh:
+    :return:
+    """
     img = np.copy(img)
     # Convert to HLS color space and separate the V channel
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
@@ -158,6 +200,11 @@ def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     return color_binary
 
 def perspective_transform(img):
+    """
+
+    :param img:
+    :return:
+    """
     img_size = (img.shape[1], img.shape[0])
 
     # Four source coordinates
@@ -179,15 +226,20 @@ def perspective_transform(img):
     # Compute the perspective transform, M, given source and destination points:
     M = cv2.getPerspectiveTransform(src, dst)
 
-    # # Compute the inverse perspective transform:
+    # Compute the inverse perspective transform:
     Minv = cv2.getPerspectiveTransform(dst, src)
 
-    # # Warp an image using the perspective transform, M:
+    # Warp an image using the perspective transform, M:
     warped = cv2.warpPerspective(img, M, img_size, flags=cv2.INTER_LINEAR)
 
     return warped, Minv
 
 def find_lane(binary_warped):
+    """
+
+    :param binary_warped:
+    :return:
+    """
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
     # histogram = np.sum(binary_warped[binary_warped.shape[0] / 2:, :], axis=0)
@@ -389,25 +441,24 @@ def draw_lane_lines(img_data):
     :param img_data:
     :return:
     """
-    # Calibrate the camera (matrix)
-    top_down, perspective_M, undist = calibrate_camera(r'camera_cal/', img_data)
+    top_down, perspective_M, undist = corners_unwarp(img=img_data, nx=NX, ny=NY, mtx=cameraMatrix, dist=distortionCoeffs)
 
     binary = pipeline(img_data)
-
     # plt.imshow(cv2.cvtColor(binary, cv2.COLOR_BGR2RGB))
     # plt.imshow(binary)
     # plt.show()
 
     # Perspective Transform
-    binary_warped, Minv = perspective_transform(binary)
-    r, g, b = cv2.split(binary_warped)
+    # binary_warped, Minv = perspective_transform(binary)
+    binary_warped = cv2.warpPerspective(src=img_data, M=perspective_transform_matrix, dsize=IMG_SIZE,
+                                        flags=cv2.INTER_LINEAR)
 
+    r, g, b = cv2.split(binary_warped)
     # plt.imshow(g)
     # plt.show()
 
     # Find lane lines
     left_fitx, right_fitx, ploty = find_lane(b)
-
     # Plot the result
     # f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
     # f.tight_layout()
@@ -447,7 +498,15 @@ def run_on_test_images():
 
     :return:
     """
+    # Calibrate the camera (matrix)
+    global cameraMatrix
+    global distortionCoeffs
+    cameraMatrix, distortionCoeffs = calibrate_camera(path=r'camera_cal/', nx=NX, ny=NY, img_size=IMG_SIZE)
+
     path = r'test_images/'
+
+    global perspective_transform_matrix
+    perspective_transform_matrix = setup_perspective_transform_matrix(path)
 
     for image_file_name in os.listdir(path):
         # Distortion correction (coefficients)
@@ -473,6 +532,10 @@ def process_image(image):
     return img_final
 
 def run_on_video():
+    global cameraMatrix
+    global distortionCoeffs
+    cameraMatrix, distortionCoeffs = calibrate_camera(path=r'camera_cal/', nx=NX, ny=NY, img_size=IMG_SIZE)
+
     white_output = 'project_video_output.mp4'
     ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
     ## To do so add .subclip(start_second,end_second) to the end of the line below
@@ -480,12 +543,13 @@ def run_on_video():
     ## You may also uncomment the following line for a subclip of the first 5 seconds
     clip1 = VideoFileClip("project_video.mp4").subclip(0,1)
     # clip1 = VideoFileClip("project_video.mp4")
-    import queue
-    q_left = queue.Queue()
-    q_right = queue.Queue()
+
+    global fuck
+    fuck = 12345
+
     white_clip = clip1.fl_image(process_image)  # NOTE: this function expects color images!!
     white_clip.write_videofile(white_output, audio=False)
 
 if __name__ == '__main__':
-    # run_on_test_images()
-    run_on_video()
+    run_on_test_images()
+    # run_on_video()
