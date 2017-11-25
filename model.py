@@ -50,7 +50,7 @@ class Line():
         self.ally = None
 
 
-def calibrate_camera(path, img):
+def calibrate_camera(path):
     """
     Chessboard size 9x6
     :param path:
@@ -87,9 +87,7 @@ def calibrate_camera(path, img):
     # Camera calibration, given object points, image points, and the shape of the grayscale image
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, IMG_SIZE, None, None)
 
-    undist = cv2.undistort(img, mtx, dist, None, mtx)
-
-    return undist
+    return mtx, dist
 
 
 # Define a function that takes an image, number of x and y points,
@@ -157,8 +155,7 @@ def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
 
     return color_binary
 
-def perspective_transform(img):
-    img_size = (img.shape[1], img.shape[0])
+def perspective_transform():
 
     # Four source coordinates
     src = np.float32(
@@ -182,10 +179,7 @@ def perspective_transform(img):
     # # Compute the inverse perspective transform:
     Minv = cv2.getPerspectiveTransform(dst, src)
 
-    # # Warp an image using the perspective transform, M:
-    warped = cv2.warpPerspective(img, M, img_size, flags=cv2.INTER_LINEAR)
-
-    return warped, Minv
+    return M, Minv
 
 def find_lane(binary_warped):
     # Assuming you have created a warped binary image called "binary_warped"
@@ -257,6 +251,10 @@ def find_lane(binary_warped):
     rightx = nonzerox[right_lane_inds]
     righty = nonzeroy[right_lane_inds]
 
+    if not righty.shape[0] > 0:
+        print('ERROR')
+        return [], [], []
+
     # Fit a second order polynomial to each
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
@@ -266,12 +264,12 @@ def find_lane(binary_warped):
     # ------------------------------
 
     # Generate x and y values for plotting
-    ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
-    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
-    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+    # ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
+    # left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+    # right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
-    out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
-    out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
+    # out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
+    # out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
     # plt.imshow(out_img)
     # plt.plot(left_fitx, ploty, color='yellow')
     # plt.plot(right_fitx, ploty, color='yellow')
@@ -343,9 +341,9 @@ def find_lane(binary_warped):
     right_line_pts = np.hstack((right_line_window1, right_line_window2))
 
     # Draw the lane onto the warped blank image
-    cv2.fillPoly(window_img, np.int_([left_line_pts]), (0, 255, 0))
-    cv2.fillPoly(window_img, np.int_([right_line_pts]), (0, 255, 0))
-    result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
+    # cv2.fillPoly(window_img, np.int_([left_line_pts]), (0, 255, 0))
+    # cv2.fillPoly(window_img, np.int_([right_line_pts]), (0, 255, 0))
+    # result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
     # plt.imshow(result)
     # plt.plot(left_fitx, ploty, color='yellow')
     # plt.plot(right_fitx, ploty, color='yellow')
@@ -362,7 +360,6 @@ def find_lane(binary_warped):
     right_curverad = ((1 + (2 * right_fit[0] * y_eval + right_fit[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit[0])
     print(left_curverad, right_curverad)
     # Example values: 1926.74 1908.48
-
 
     # Define conversions in x and y from pixels space to meters
     ym_per_pix = 30 / 720  # meters per pixel in y dimension
@@ -389,8 +386,7 @@ def draw_lane_lines(img_data):
     :param img_data:
     :return:
     """
-    # Calibrate the camera (matrix)
-    undist = calibrate_camera(r'camera_cal/', img_data)
+    undist = cv2.undistort(img_data, mtx, dist, None, mtx)
     # plt.imshow(undist)
     # plt.show()
 
@@ -399,14 +395,18 @@ def draw_lane_lines(img_data):
     # plt.imshow(binary)
     # plt.show()
 
-    # Perspective Transform
-    binary_warped, Minv = perspective_transform(binary)
+    # # Warp an image using the perspective transform, M:
+    binary_warped = cv2.warpPerspective(binary, M, IMG_SIZE, flags=cv2.INTER_LINEAR)
+
     r, g, b = cv2.split(binary_warped)
     # plt.imshow(b)
     # plt.show()
 
     # Find lane lines
     left_fitx, right_fitx, ploty = find_lane(b)
+
+    if not any(left_fitx):
+        return undist
 
     # # Plot the result
     # f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
@@ -423,7 +423,7 @@ def draw_lane_lines(img_data):
     # OVERLAY
     # -----------------------------------------------------------------------------
     # Create an image to draw the lines on
-    warp_zero = np.zeros_like(g).astype(np.uint8)
+    warp_zero = np.zeros_like(b).astype(np.uint8)
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
     # Recast the x and y points into usable format for cv2.fillPoly()
@@ -441,11 +441,22 @@ def draw_lane_lines(img_data):
 
     return result
 
+def calibrate_camera_and_pers_transform():
+    global mtx, dist, M, Minv
+
+    # Calibrate the camera (matrix)
+    mtx, dist = calibrate_camera(r'camera_cal/')
+
+    # Perspective Transform
+    M, Minv = perspective_transform()
+
 def run_on_test_images():
     """
 
     :return:
     """
+    calibrate_camera_and_pers_transform()
+
     path = r'test_images/'
 
     for image_file_name in os.listdir(path):
@@ -482,19 +493,19 @@ def process_image(image):
     return img_final
 
 def run_on_video():
+    calibrate_camera_and_pers_transform()
+
     white_output = 'project_video_output.mp4'
     ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
     ## To do so add .subclip(start_second,end_second) to the end of the line below
     ## Where start_second and end_second are integer values representing the start and end of the subclip
     ## You may also uncomment the following line for a subclip of the first 5 seconds
-    clip1 = VideoFileClip("project_video.mp4").subclip(0,1)
+    clip1 = VideoFileClip("project_video.mp4").subclip(25, 30)
     # clip1 = VideoFileClip("project_video.mp4")
-    import queue
-    q_left = queue.Queue()
-    q_right = queue.Queue()
+
     white_clip = clip1.fl_image(process_image)  # NOTE: this function expects color images!!
     white_clip.write_videofile(white_output, audio=False)
 
 if __name__ == '__main__':
-    run_on_test_images()
-    # run_on_video()
+    # run_on_test_images()
+    run_on_video()
