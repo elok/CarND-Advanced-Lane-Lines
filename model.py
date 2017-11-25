@@ -18,7 +18,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 # Import everything needed to edit/save/watch video clips
 from moviepy.editor import VideoFileClip
-from IPython.display import HTML
+
+IMG_SIZE = (1280, 720)
 
 # Define a class to receive the characteristics of each line detection
 class Line():
@@ -83,52 +84,51 @@ def calibrate_camera(path, img):
             # img_corners = cv2.drawChessboardCorners(img_data, (nx, ny), corners, ret)
 
     # Convert to gray
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     # Camera calibration, given object points, image points, and the shape of the grayscale image
-    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, gray.shape[::-1], None, None)
+    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, IMG_SIZE, None, None)
 
-    top_down, perspective_M, undist = corners_unwarp(img, nx=nx, ny=ny, mtx=mtx, dist=dist)
+    undist = cv2.undistort(img, mtx, dist, None, mtx)
 
-    return top_down, perspective_M, undist
+    return undist
 
 
 # Define a function that takes an image, number of x and y points,
 # camera matrix and distortion coefficients
-def corners_unwarp(img, nx, ny, mtx, dist):
-    # Use the OpenCV undistort() function to remove distortion
-    undist = cv2.undistort(img, mtx, dist, None, mtx)
-    # Convert undistorted image to grayscale
-    gray = cv2.cvtColor(undist, cv2.COLOR_BGR2GRAY)
-    # Search for corners in the grayscaled image
-    ret, corners = cv2.findChessboardCorners(gray, (nx, ny), None)
-
-    warped, M = None, None
-
-    if ret == True:
-        # If we found corners, draw them! (just for fun)
-        cv2.drawChessboardCorners(undist, (nx, ny), corners, ret)
-        # Choose offset from image corners to plot detected corners
-        # This should be chosen to present the result at the proper aspect ratio
-        # My choice of 100 pixels is not exact, but close enough for our purpose here
-        offset = 100 # offset for dst points
-        # Grab the image shape
-        img_size = (gray.shape[1], gray.shape[0])
-
-        # For source points I'm grabbing the outer four detected corners
-        src = np.float32([corners[0], corners[nx-1], corners[-1], corners[-nx]])
-        # For destination points, I'm arbitrarily choosing some points to be
-        # a nice fit for displaying our warped result
-        # again, not exact, but close enough for our purposes
-        dst = np.float32([[offset, offset], [img_size[0]-offset, offset],
-                                     [img_size[0]-offset, img_size[1]-offset],
-                                     [offset, img_size[1]-offset]])
-        # Given src and dst points, calculate the perspective transform matrix
-        M = cv2.getPerspectiveTransform(src, dst)
-        # Warp the image using OpenCV warpPerspective()
-        warped = cv2.warpPerspective(undist, M, img_size)
-
-    # Return the resulting image and matrix
-    return warped, M, undist
+# def corners_unwarp(img, nx, ny, mtx, dist):
+#     # Use the OpenCV undistort() function to remove distortion
+#     undist = cv2.undistort(img, mtx, dist, None, mtx)
+#     # Convert undistorted image to grayscale
+#     gray = cv2.cvtColor(undist, cv2.COLOR_BGR2GRAY)
+#     # Search for corners in the grayscaled image
+#     ret, corners = cv2.findChessboardCorners(gray, (nx, ny), None)
+#
+#     warped, M = None, None
+#
+#     if ret == True:
+#         # If we found corners, draw them! (just for fun)
+#         cv2.drawChessboardCorners(undist, (nx, ny), corners, ret)
+#         # Choose offset from image corners to plot detected corners
+#         # This should be chosen to present the result at the proper aspect ratio
+#         # My choice of 100 pixels is not exact, but close enough for our purpose here
+#         offset = 100 # offset for dst points
+#         # Grab the image shape
+#         img_size = (gray.shape[1], gray.shape[0])
+#
+#         # For source points I'm grabbing the outer four detected corners
+#         src = np.float32([corners[0], corners[nx-1], corners[-1], corners[-nx]])
+#         # For destination points, I'm arbitrarily choosing some points to be
+#         # a nice fit for displaying our warped result
+#         # again, not exact, but close enough for our purposes
+#         dst = np.float32([[offset, offset], [img_size[0]-offset, offset],
+#                                      [img_size[0]-offset, img_size[1]-offset],
+#                                      [offset, img_size[1]-offset]])
+#         # Given src and dst points, calculate the perspective transform matrix
+#         M = cv2.getPerspectiveTransform(src, dst)
+#         # Warp the image using OpenCV warpPerspective()
+#         warped = cv2.warpPerspective(undist, M, img_size)
+#
+#     # Return the resulting image and matrix
+#     return warped, M, undist
 
 
 # Edit this function to create your own pipeline.
@@ -390,10 +390,11 @@ def draw_lane_lines(img_data):
     :return:
     """
     # Calibrate the camera (matrix)
-    top_down, perspective_M, undist = calibrate_camera(r'camera_cal/', img_data)
+    undist = calibrate_camera(r'camera_cal/', img_data)
+    # plt.imshow(undist)
+    # plt.show()
 
     binary = pipeline(img_data)
-
     # plt.imshow(cv2.cvtColor(binary, cv2.COLOR_BGR2RGB))
     # plt.imshow(binary)
     # plt.show()
@@ -401,20 +402,19 @@ def draw_lane_lines(img_data):
     # Perspective Transform
     binary_warped, Minv = perspective_transform(binary)
     r, g, b = cv2.split(binary_warped)
-
-    # plt.imshow(g)
+    # plt.imshow(b)
     # plt.show()
 
     # Find lane lines
     left_fitx, right_fitx, ploty = find_lane(b)
 
-    # Plot the result
+    # # Plot the result
     # f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
     # f.tight_layout()
-    # ax1.imshow(cv2.cvtColor(img_data, cv2.COLOR_BGR2RGB))
+    # ax1.imshow(cv2.cvtColor(undist, cv2.COLOR_BGR2RGB))
     # ax1.set_title('Original Image', fontsize=40)
     # # ax2.imshow(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
-    # ax2.imshow(g)
+    # ax2.imshow(b)
     # ax2.set_title('Pipeline Result', fontsize=40)
     # plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
     # plt.show()
@@ -422,7 +422,6 @@ def draw_lane_lines(img_data):
     # -----------------------------------------------------------------------------
     # OVERLAY
     # -----------------------------------------------------------------------------
-
     # Create an image to draw the lines on
     warp_zero = np.zeros_like(g).astype(np.uint8)
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
@@ -436,7 +435,7 @@ def draw_lane_lines(img_data):
     cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
 
     # Warp the blank back to original image space using inverse perspective matrix (Minv)
-    newwarp = cv2.warpPerspective(color_warp, Minv, (img_data.shape[1], img_data.shape[0]))
+    newwarp = cv2.warpPerspective(color_warp, Minv, IMG_SIZE)
     # Combine the result with the original image
     result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
@@ -462,8 +461,18 @@ def run_on_test_images():
 
         result = draw_lane_lines(img_data)
 
-        plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+        # Plot the result
+        f, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+        f.tight_layout()
+        ax1.imshow(cv2.cvtColor(img_data, cv2.COLOR_BGR2RGB))
+        ax1.set_title('Original Image', fontsize=12)
+        ax2.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+        ax2.set_title('Pipeline Result', fontsize=12)
+        plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
         plt.show()
+
+        pass
+
 
 def process_image(image):
     # NOTE: The output you return should be a color image (3 channel) for processing video below
@@ -487,5 +496,5 @@ def run_on_video():
     white_clip.write_videofile(white_output, audio=False)
 
 if __name__ == '__main__':
-    # run_on_test_images()
-    run_on_video()
+    run_on_test_images()
+    # run_on_video()
