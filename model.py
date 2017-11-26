@@ -495,6 +495,9 @@ def process_image(image):
 def run_on_video():
     calibrate_camera_and_pers_transform()
 
+    global line_left_data, line_right_data
+    line_left_data = Line()
+
     white_output = 'project_video_output.mp4'
     ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
     ## To do so add .subclip(start_second,end_second) to the end of the line below
