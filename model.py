@@ -80,57 +80,21 @@ def calibrate_camera(path):
         if ret:
             objpoints.append(objp)
             imgpoints.append(corners)
-            # Drawing detected corners on an image
-            # img_corners = cv2.drawChessboardCorners(img_data, (nx, ny), corners, ret)
 
-    # Convert to gray
     # Camera calibration, given object points, image points, and the shape of the grayscale image
     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, IMG_SIZE, None, None)
 
     return mtx, dist
 
 
-# Define a function that takes an image, number of x and y points,
-# camera matrix and distortion coefficients
-# def corners_unwarp(img, nx, ny, mtx, dist):
-#     # Use the OpenCV undistort() function to remove distortion
-#     undist = cv2.undistort(img, mtx, dist, None, mtx)
-#     # Convert undistorted image to grayscale
-#     gray = cv2.cvtColor(undist, cv2.COLOR_BGR2GRAY)
-#     # Search for corners in the grayscaled image
-#     ret, corners = cv2.findChessboardCorners(gray, (nx, ny), None)
-#
-#     warped, M = None, None
-#
-#     if ret == True:
-#         # If we found corners, draw them! (just for fun)
-#         cv2.drawChessboardCorners(undist, (nx, ny), corners, ret)
-#         # Choose offset from image corners to plot detected corners
-#         # This should be chosen to present the result at the proper aspect ratio
-#         # My choice of 100 pixels is not exact, but close enough for our purpose here
-#         offset = 100 # offset for dst points
-#         # Grab the image shape
-#         img_size = (gray.shape[1], gray.shape[0])
-#
-#         # For source points I'm grabbing the outer four detected corners
-#         src = np.float32([corners[0], corners[nx-1], corners[-1], corners[-nx]])
-#         # For destination points, I'm arbitrarily choosing some points to be
-#         # a nice fit for displaying our warped result
-#         # again, not exact, but close enough for our purposes
-#         dst = np.float32([[offset, offset], [img_size[0]-offset, offset],
-#                                      [img_size[0]-offset, img_size[1]-offset],
-#                                      [offset, img_size[1]-offset]])
-#         # Given src and dst points, calculate the perspective transform matrix
-#         M = cv2.getPerspectiveTransform(src, dst)
-#         # Warp the image using OpenCV warpPerspective()
-#         warped = cv2.warpPerspective(undist, M, img_size)
-#
-#     # Return the resulting image and matrix
-#     return warped, M, undist
-
-
-# Edit this function to create your own pipeline.
-def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
+def generate_binary(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
+    """
+    Find lane line by using HLS color space and sobel gradients
+    :param img:
+    :param s_thresh:
+    :param sx_thresh:
+    :return: binary image
+    """
     img = np.copy(img)
     # Convert to HLS color space and separate the V channel
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
@@ -180,6 +144,8 @@ def perspective_transform():
     Minv = cv2.getPerspectiveTransform(dst, src)
 
     return M, Minv
+
+
 
 def find_lane(binary_warped):
     # Assuming you have created a warped binary image called "binary_warped"
@@ -290,10 +256,8 @@ def find_lane(binary_warped):
     # plt.show()
 
     # -------------------------------------------------------------
-    # binary_warped = out_img
 
-    # Assume you now have a new warped binary image
-    # from the next frame of video (also called "binary_warped")
+    # Assume you now have a new warped binary image from the next frame of video (also called "binary_warped")
     # It's now much easier to find line pixels!
     nonzero = binary_warped.nonzero()
     nonzeroy = np.array(nonzero[0])
@@ -317,6 +281,11 @@ def find_lane(binary_warped):
     # Fit a second order polynomial to each
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
+
+    # ------------------------------
+    # Visualization
+    # ------------------------------
+
     # Generate x and y values for plotting
     ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
@@ -350,11 +319,11 @@ def find_lane(binary_warped):
     # plt.xlim(0, 1280)
     # plt.ylim(720, 0)
 
-    # ----------------------
+    # ------------------------------------------------------
     # Now we have polynomial fits and we can calculate the radius of curvature as follows:
 
-    # Define y-value where we want radius of curvature
-    # I'll choose the maximum y-value, corresponding to the bottom of the image
+    # Define y-value where we want radius of curvature. I'll choose the maximum y-value, corresponding to the
+    # bottom of the image
     y_eval = np.max(ploty)
     left_curverad = ((1 + (2 * left_fit[0] * y_eval + left_fit[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit[0])
     right_curverad = ((1 + (2 * right_fit[0] * y_eval + right_fit[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit[0])
@@ -366,7 +335,6 @@ def find_lane(binary_warped):
     xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
 
     # Fit new polynomials to x,y in world space
-    # left_fit_cr = np.polyfit(ploty * ym_per_pix, leftx * xm_per_pix, 2)
     left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
     right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
     # Calculate the new radii of curvature
@@ -377,6 +345,16 @@ def find_lane(binary_warped):
     # Now our radius of curvature is in meters
     print(left_curverad, 'm', right_curverad, 'm')
     # Example values: 632.1 m    626.2 m
+
+    # ----------------------------------------------------------
+    # Save the curve data
+    # ----------------------------------------------------------
+    line_left_data.detected = True
+    line_left_data.recent_xfitted = left_fitx       # x values of the last n fits of the line
+    line_left_data.radius_of_curvature = left_curverad
+    line_left_data.allx = None  # x values for detected line pixels
+
+    line_right_data.radius_of_curvature = right_curverad
 
     return left_fitx, right_fitx, ploty
 
@@ -390,7 +368,7 @@ def draw_lane_lines(img_data):
     # plt.imshow(undist)
     # plt.show()
 
-    binary = pipeline(img_data)
+    binary = generate_binary(img_data)
     # plt.imshow(cv2.cvtColor(binary, cv2.COLOR_BGR2RGB))
     # plt.imshow(binary)
     # plt.show()
@@ -497,13 +475,14 @@ def run_on_video():
 
     global line_left_data, line_right_data
     line_left_data = Line()
+    line_right_data = Line()
 
     white_output = 'project_video_output.mp4'
     ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
     ## To do so add .subclip(start_second,end_second) to the end of the line below
     ## Where start_second and end_second are integer values representing the start and end of the subclip
     ## You may also uncomment the following line for a subclip of the first 5 seconds
-    clip1 = VideoFileClip("project_video.mp4").subclip(25, 30)
+    clip1 = VideoFileClip("project_video.mp4").subclip(25, 27)
     # clip1 = VideoFileClip("project_video.mp4")
 
     white_clip = clip1.fl_image(process_image)  # NOTE: this function expects color images!!
