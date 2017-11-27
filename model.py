@@ -14,6 +14,7 @@ Output visual display of the lane boundaries and numerical estimation of lane cu
 """
 import os
 import cv2
+import traceback
 import numpy as np
 import matplotlib.pyplot as plt
 # Import everything needed to edit/save/watch video clips
@@ -45,9 +46,9 @@ class Line():
         # difference in fit coefficients between last and new fits
         self.diffs = np.array([0,0,0], dtype='float')
         # x values for detected line pixels
-        self.allx = None
+        self.allx = []
         # y values for detected line pixels
-        self.ally = None
+        self.ally = []
 
 def visualize(img_data, img_data_2):
     # # Plot the result
@@ -56,8 +57,11 @@ def visualize(img_data, img_data_2):
     # ax1.imshow(cv2.cvtColor(img_data, cv2.COLOR_BGR2RGB))
     ax1.imshow(img_data)
     ax1.set_title('Original Image', fontsize=12)
-    ax2.imshow(cv2.cvtColor(img_data_2, cv2.COLOR_BGR2RGB))
-    # ax2.imshow(img_data_2)
+    try:
+        ax2.imshow(cv2.cvtColor(img_data_2, cv2.COLOR_BGR2RGB))
+        print(traceback.format_exc())
+    except:
+        ax2.imshow(img_data_2)
     ax2.set_title('Pipeline Result', fontsize=12)
     plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
     plt.show()
@@ -134,20 +138,35 @@ def generate_binary(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
 def perspective_transform():
 
     # Four source coordinates
-    src = np.float32(
-        [[760, 500],  # top right
-        [1000, 650],  # bottom right
-        [305, 650],  # bottom left
-        [530, 500]]  # top left
-    )
+    # src = np.float32(
+    #     [[760, 500],  # top right
+    #     [1000, 650],  # bottom right
+    #     [305, 650],  # bottom left
+    #     [530, 500]]  # top left
+    # )
+    #
+    # # Four desired coordinates
+    # dst = np.float32(
+    #     [[990, 500],
+    #      [1000, 650],
+    #      [305, 650],
+    #      [330, 500]]
+    # )
 
-    # Four desired coordinates
-    dst = np.float32(
-        [[990, 500],
-         [1000, 650],
-         [305, 650],
-         [330, 500]]
-    )
+    # w, h = 1280, 720
+    # x, y = 0.5 * w, 0.8 * h
+    # src = np.float32([[200. / 1280 * w, 720. / 720 * h],
+    #                   [453. / 1280 * w, 547. / 720 * h],
+    #                   [835. / 1280 * w, 547. / 720 * h],
+    #                   [1100. / 1280 * w, 720. / 720 * h]])
+    #
+    # dst = np.float32([[(w - x) / 2., h],
+    #                   [(w - x) / 2., 0.82 * h],
+    #                   [(w + x) / 2., 0.82 * h],
+    #                   [(w + x) / 2., h]])
+
+    src = np.float32([[(200, 720), (570, 470), (720, 470), (1130, 720)]])
+    dst = np.float32([[(350, 720), (350, 0), (980, 0), (980, 720)]])
 
     # Compute the perspective transform, M, given source and destination points:
     M = cv2.getPerspectiveTransform(src, dst)
@@ -359,13 +378,6 @@ def find_lane(binary_warped):
         left_fit, right_fit = find_lane_using_previous(binary_warped)
         print('using previous')
 
-    # Validation
-    if (not any(left_fit)) or (not any(right_fit)):
-        line_left_data.detected = False
-        line_right_data.detected = False
-
-        return [], [], []
-
     #
     ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
@@ -398,20 +410,63 @@ def find_lane(binary_warped):
     print(left_curverad, 'm', right_curverad, 'm')
     # Example values: 632.1 m    626.2 m
 
+    # --------------------------------------------------------------
+    # Validation
+    # --------------------------------------------------------------
+    problem = False
+    max_diff = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
+    print('max_diff: {0} meters. max is 3.7 meters.'.format(max_diff))
+
+    if max_diff > 4.3:
+        problem = True
+
+    if (not any(left_fit)) or (not any(right_fit)):
+        problem = True
+
+    # Validate curvature
+    # line_left_data.radius_of_curvature
+    # line_right_data.radius_of_curvature
+    if line_left_data.radius_of_curvature and line_right_data.radius_of_curvature:
+        print(abs(line_left_data.radius_of_curvature - left_curverad))
+        print(abs(line_right_data.radius_of_curvature - right_curverad))
+
+    if problem:
+        line_left_data.detected = False
+        line_right_data.detected = False
+        # return [], [], []
+        return line_left_data.bestx, line_right_data.bestx, ploty
+
     # -----------------------------------------------------------------
-    # Save the curve data
+    # Save curve/line/lane data
     # -----------------------------------------------------------------
-    # SAVE BACK TO GLOBAL LINE DATA
+    # Detection - was the line detected in the last iteration?
     line_left_data.detected = True
     line_right_data.detected = True
+    # x values for detected line pixels
+    line_left_data.allx.append(left_fitx)
+    line_right_data.allx.append(right_fitx)
 
+    print(left_fitx[0])
+    print([x[0] for x in line_left_data.allx])
+
+    # y values for detected line pixels
+    # line_left_data.ally = None
+    # line_right_data.ally = None
+    # Current fit - polynomial coefficients for the most recent fit
     line_left_data.current_fit = left_fit
     line_right_data.current_fit = right_fit
-
-    # line_left_data.recent_xfitted = left_fitx       # x values of the last n fits of the line
-    # line_left_data.radius_of_curvature = left_curverad
-    # line_left_data.allx = None  # x values for detected line pixels
-
+    # Curve - radius of curvature of the line in some units
+    line_left_data.radius_of_curvature = left_curverad
+    line_right_data.radius_of_curvature = right_curverad
+    # x values of the last n fits of the line
+    line_left_data.recent_xfitted = left_fitx
+    line_right_data.recent_xfitted = right_fitx
+    # average x values of the fitted line over the last 3 iterations
+    line_left_data.bestx = np.average(line_left_data.allx[-3:], axis=0)
+    line_right_data.bestx = np.average(line_right_data.allx[-3:], axis=0)
+    # polynomial coefficients averaged over the last n iterations
+    line_left_data.best_fit = None
+    line_right_data.best_fit = None
 
     return left_fitx, right_fitx, ploty
 
@@ -421,38 +476,35 @@ def draw_lane_lines(img_data):
     :param img_data:
     :return:
     """
-    undist = cv2.undistort(img_data, mtx, dist, None, mtx)
-    # plt.imshow(undist)
-    # plt.show()
+    # Using the camera matrix and distortion coeff, undistort the image
+    undist = cv2.undistort(src=img_data, cameraMatrix=mtx, distCoeffs=dist, newCameraMatrix=None, dst=mtx)
 
     binary = generate_binary(img_data)
-    # plt.imshow(cv2.cvtColor(binary, cv2.COLOR_BGR2RGB))
-    # plt.imshow(binary)
-    # plt.show()
 
-    # # Warp an image using the perspective transform, M:
-    binary_warped = cv2.warpPerspective(binary, M, IMG_SIZE, flags=cv2.INTER_LINEAR)
+    # Warp an image using the perspective transform, M:
+    binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
 
+    # Split the binary warped image to its RGB channels
     r, g, b = cv2.split(binary_warped)
-    # plt.imshow(b)
-    # plt.show()
 
     # Find lane lines
     left_fitx, right_fitx, ploty = find_lane(g)
 
-    if (not any(left_fitx)) or (not any(right_fitx)):
-        return undist
-
-    # # Plot the result
-    # f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
-    # f.tight_layout()
-    # ax1.imshow(cv2.cvtColor(undist, cv2.COLOR_BGR2RGB))
-    # ax1.set_title('Original Image', fontsize=40)
-    # # ax2.imshow(cv2.cvtColor(warped, cv2.COLOR_BGR2RGB))
-    # ax2.imshow(b)
-    # ax2.set_title('Pipeline Result', fontsize=40)
-    # plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-    # plt.show()
+    # # -----------------------------------------------------------------
+    # # HANDLING
+    # # -----------------------------------------------------------------
+    # if (not any(left_fitx)) or (not any(right_fitx)):
+    #     # Try the B channel
+    #     left_fitx, right_fitx, ploty = find_lane(b)
+    #
+    #     if (not any(left_fitx)) or (not any(right_fitx)):
+    #         # visualize(undist, binary_warped)
+    #
+    #         # TODO: sfds
+    #
+    #         # use last lanes
+    #         left_fitx = line_left_data.recent_xfitted
+    #         right_fitx = line_right_data.recent_xfitted
 
     # -----------------------------------------------------------------
     # OVERLAY
@@ -473,8 +525,6 @@ def draw_lane_lines(img_data):
     newwarp = cv2.warpPerspective(color_warp, Minv, IMG_SIZE)
     # Combine the result with the original image
     result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
-
-    # visualize(undist, result)
 
     return result
 
