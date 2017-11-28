@@ -366,18 +366,14 @@ def find_lane_using_previous(binary_warped):
 
     return left_fit, right_fit
 
-def find_lane(binary_warped):
+def calc_lane(binary_warped, left_fit, right_fit):
+    """
 
-    # Compute the Polynomial coefficients
-    if not line_left_data.detected:
-        # We did not find a lane line in the previous frame, lets search using histogram
-        left_fit, right_fit = find_lane_histogram(binary_warped)
-        print('using histogram')
-    else:
-        # Lane line detected in previous frame, start searching using previous data
-        left_fit, right_fit = find_lane_using_previous(binary_warped)
-        print('using previous')
-
+    :param binary_warped:
+    :param left_fit:
+    :param right_fit:
+    :return:
+    """
     #
     ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
@@ -428,10 +424,36 @@ def find_lane(binary_warped):
         print(abs(line_left_data.radius_of_curvature - left_curverad))
         print(abs(line_right_data.radius_of_curvature - right_curverad))
 
-    if problem:
-        line_left_data.detected = False
-        line_right_data.detected = False
-        return line_left_data.bestx, line_right_data.bestx, ploty
+    return problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad
+
+def find_lane(binary_warped):
+    """
+
+    :param binary_warped:
+    :return:
+    """
+    # Compute the Polynomial coefficients
+    if not line_left_data.detected:
+        # We did not find a lane line in the previous frame, lets search using histogram
+        left_fit, right_fit = find_lane_histogram(binary_warped)
+        print('using histogram')
+    else:
+        # Lane line detected in previous frame, start searching using previous data
+        left_fit, right_fit = find_lane_using_previous(binary_warped)
+        print('using previous')
+
+    problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad = calc_lane(binary_warped, left_fit, right_fit)
+
+    # try histogram
+    if problem and line_left_data.detected:
+        left_fit, right_fit = find_lane_histogram(binary_warped)
+        problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad = calc_lane(binary_warped, left_fit, right_fit)
+
+        # use last average
+        if problem:
+            line_left_data.detected = False
+            line_right_data.detected = False
+            return line_left_data.bestx, line_right_data.bestx, ploty
 
     # -----------------------------------------------------------------
     # Save curve/line/lane data
@@ -592,5 +614,5 @@ def run_on_video():
     white_clip.write_videofile(white_output, audio=False)
 
 if __name__ == '__main__':
-    run_on_test_images()
-    # run_on_video()
+    # run_on_test_images()
+    run_on_video()
