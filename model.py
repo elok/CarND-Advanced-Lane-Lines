@@ -17,6 +17,7 @@ import cv2
 import pandas as pd
 import traceback
 import numpy as np
+from math import sqrt
 import matplotlib.pyplot as plt
 # Import everything needed to edit/save/watch video clips
 from moviepy.editor import VideoFileClip
@@ -59,6 +60,8 @@ class Blah():
     def __init__(self):
         self.stats_df = pd.DataFrame()
         self.num_frame = 0
+        self.line_left_data = Line()
+        self.line_right_data = Line()
 
     def process_image(self, image):
         # NOTE: The output you return should be a color image (3 channel) for processing video below
@@ -85,7 +88,7 @@ class Blah():
         r, g, b = cv2.split(binary_warped)
 
         # Find lane lines
-        left_fitx, right_fitx, ploty, avg_curverad, current_stats_df = find_lane(r, g, b)
+        left_fitx, right_fitx, ploty, avg_curverad, current_stats_df = self.find_lane(r, g, b)
 
         # -----------------------------------------------------------------
         # OVERLAY
@@ -118,7 +121,229 @@ class Blah():
 
         self.num_frame += 1
 
+        # Overlay
+        # small = cv2.resize(g, (0, 0), fx=0.3, fy=0.3)
+        # new_result = cv2.addWeighted(small, 0.7, result, 0.3, 0)
+
         return result
+
+    def find_lane(self, r, g, b):
+        """
+
+        :param r: binary warped red
+        :param g: binary warped green
+        :param b: binary warped blue
+        :return:
+        """
+        logger.debug('\n-------------------------------------------------------------')
+        # method = None
+
+        # Compute the Polynomial coefficients
+        if not self.line_left_data.detected:
+            # We did not find a lane line in the previous frame, lets search using histogram
+            left_fit, right_fit = find_lane_histogram(g)  # use green channel
+            method = 'histogram g'
+        else:
+            # Lane line detected in previous frame, start searching using previous data
+            left_fit, right_fit = self.find_lane_using_previous(g)  # use green channel
+            method = 'previous g'
+
+        problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = self.calc_lane(g, left_fit,
+                                                                                                       right_fit)
+
+        # try histogram
+        if problem and self.line_left_data.detected:
+            left_fit, right_fit = find_lane_histogram(g)
+            method = 'histogram retry g'
+            problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = self.calc_lane(g, left_fit,
+                                                                                                           right_fit)
+
+            # try blue channel
+            if problem:
+                left_fit, right_fit = find_lane_histogram(b)
+                method = 'histogram retry b'
+                problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = self.calc_lane(b,
+                                                                                                               left_fit,
+                                                                                                               right_fit)
+
+                # use last average
+                if problem:
+                    method = 'use last average'
+                    logger.debug('Using method: {0}'.format(method))
+                    self.line_left_data.detected = False
+                    self.line_right_data.detected = False
+
+                    avg_curverad = (self.line_left_data.radius_of_curvature + self.line_right_data.radius_of_curvature) / 2
+
+                    current_stats_df = pd.DataFrame(data={'left_curverad': self.line_left_data.radius_of_curvature,
+                                                          'right_curverad': self.line_right_data.radius_of_curvature,
+                                                          'avg_curverad': avg_curverad,
+                                                          'method': method}, index=[0])
+
+                    return self.line_left_data.bestx, self.line_right_data.bestx, ploty, avg_curverad, current_stats_df
+
+        # -----------------------------------------------------------------
+        # Save curve/line/lane data
+        # -----------------------------------------------------------------
+        # Detection - was the line detected in the last iteration?
+        self.line_left_data.detected = True
+        self.line_right_data.detected = True
+        # x values for detected line pixels
+        self.line_left_data.allx.append(left_fitx)
+        self.line_right_data.allx.append(right_fitx)
+        # y values for detected line pixels
+        # line_left_data.ally = None
+        # line_right_data.ally = None
+        # Current fit - polynomial coefficients for the most recent fit
+        self.line_left_data.current_fit = left_fit
+        self.line_right_data.current_fit = right_fit
+        # Curve - radius of curvature of the line in some units
+        self.line_left_data.radius_of_curvature = left_curverad
+        self. line_right_data.radius_of_curvature = right_curverad
+        # average x values of the fitted line over the last 3 iterations
+        self.line_left_data.bestx = np.average(self.line_left_data.allx[-3:], axis=0)
+        self.line_right_data.bestx = np.average(self.line_right_data.allx[-3:], axis=0)
+
+        # x values of the last n fits of the line
+        self.line_left_data.recent_xfitted.append(left_fit)
+        self.line_right_data.recent_xfitted.append(right_fit)
+        # polynomial coefficients averaged over the last 3 iterations
+        self.line_left_data.best_fit = np.average(self.line_left_data.recent_xfitted[-3:], axis=0)
+        self.line_right_data.best_fit = np.average(self.line_right_data.recent_xfitted[-3:], axis=0)
+
+        # -----------------------------------------------------------------
+        # Print
+        # -----------------------------------------------------------------
+        logger.debug('Using method: {0}'.format(method))
+        logger.debug('left_curverad: {0:,.2f}'.format(left_curverad))
+        logger.debug('right_curverad: {0:,.2f}'.format(right_curverad))
+        logger.debug('avg_curverad: {0:,.2f}'.format(avg_curverad))
+
+        current_stats_df = pd.DataFrame(data={'left_curverad': left_curverad,
+                                              'right_curverad': right_curverad,
+                                              'avg_curverad': avg_curverad,
+                                              'method': method}, index=[0])
+
+        logger.debug('-------------------------------------------------------------')
+
+        return left_fitx, right_fitx, ploty, avg_curverad, current_stats_df
+
+    def calc_lane(self, binary_warped, left_fit, right_fit):
+        """
+
+        :param binary_warped:
+        :param left_fit:
+        :param right_fit:
+        :return:
+        """
+        #
+        ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
+        left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+        right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+
+        # ------------------------------------------------------
+        # Now we have polynomial fits and we can calculate the radius of curvature as follows:
+
+        # Define y-value where we want radius of curvature. I'll choose the maximum y-value, corresponding to the
+        # bottom of the image
+        y_eval = np.max(ploty)
+        # left_curverad = ((1 + (2 * left_fit[0] * y_eval + left_fit[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit[0])
+        # right_curverad = ((1 + (2 * right_fit[0] * y_eval + right_fit[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit[0])
+        # print(left_curverad, right_curverad)
+        # Example values: 1926.74 1908.48
+
+        # Define conversions in x and y from pixels space to meters
+        ym_per_pix = 30 / 720  # meters per pixel in y dimension
+        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+
+        # Fit new polynomials to x,y in world space
+        left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
+        right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
+        # Calculate the new radii of curvature
+        left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
+            2 * left_fit_cr[0])
+        right_curverad = (
+                         (1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
+            2 * right_fit_cr[0])
+        avg_curverad = (left_curverad + right_curverad) / 2
+        # Now our radius of curvature is in meters
+        # print(left_curverad, 'm', right_curverad, 'm')
+        # Example values: 632.1 m    626.2 m
+
+        # --------------------------------------------------------------
+        # Validation
+        # --------------------------------------------------------------
+        problem = False
+        max_lane_width = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
+        # print('max_diff: {0} meters. max is 3.7 meters.'.format(max_diff))
+
+        if max_lane_width > 4.0:
+            logger.debug('max_lane_width error: {0}'.format(max_lane_width))
+            problem = True
+
+        if (not any(left_fit)) or (not any(right_fit)):
+            problem = True
+
+        if avg_curverad < 200.0:
+            logger.debug('bad avg curve: {0}'.format(avg_curverad))
+            problem = True
+
+        # Compute the average distance between the new and the old polynomials
+        # mean_distance_left = 0
+        # poly2_left = recent_xfitted[-1:]
+        # for i in len(left_fitx):
+        #     mean_distance_left += (left_fitx[i][0] - poly2[i][0]) ^ 2 + (left_fitx[i][1] - poly2[i][1]) ^ 2
+        #     mean_distance_left /= len(left_fitx)
+        #     mean_distance_left = sqrt(mean_distance_left)
+
+        # Validate curvature
+        if self.line_left_data.radius_of_curvature and self.line_right_data.radius_of_curvature:
+            logger.debug(
+                'radius left diff: {0:,.2f}'.format(abs(self.line_left_data.radius_of_curvature - left_curverad)))
+            logger.debug(
+                'radius right diff: {0:,.2f}'.format(abs(self.line_right_data.radius_of_curvature - right_curverad)))
+
+        return problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad
+
+    def find_lane_using_previous(self, binary_warped):
+        """
+        Lane line detected in previous frame, start searching using previous data
+        :param binary_warped:
+        :return: Polynomial coefficients
+        """
+        left_fit = self.line_left_data.current_fit
+        right_fit = self.line_right_data.current_fit
+
+        # Assume you now have a new warped binary image from the next frame of video (also called "binary_warped")
+        # It's now much easier to find line pixels!
+        nonzero = binary_warped.nonzero()
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+        margin = 100
+        left_lane_inds = ((nonzerox > (left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy +
+                                       left_fit[2] - margin)) & (nonzerox < (left_fit[0] * (nonzeroy ** 2) +
+                                                                             left_fit[1] * nonzeroy + left_fit[
+                                                                                 2] + margin)))
+
+        right_lane_inds = ((nonzerox > (right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy +
+                                        right_fit[2] - margin)) & (nonzerox < (right_fit[0] * (nonzeroy ** 2) +
+                                                                               right_fit[1] * nonzeroy + right_fit[
+                                                                                   2] + margin)))
+
+        # Again, extract left and right line pixel positions
+        leftx = nonzerox[left_lane_inds]
+        lefty = nonzeroy[left_lane_inds]
+        rightx = nonzerox[right_lane_inds]
+        righty = nonzeroy[right_lane_inds]
+
+        if (not any(righty)) or (not any(lefty)):
+            return [], []
+
+        # Fit a second order polynomial to each
+        left_fit = np.polyfit(lefty, leftx, 2)
+        right_fit = np.polyfit(righty, rightx, 2)
+
+        return left_fit, right_fit
 
 def visualize(img_data, img_data_2):
     # # Plot the result
@@ -331,210 +556,6 @@ def find_lane_histogram(binary_warped):
 
     return left_fit, right_fit
 
-def find_lane_using_previous(binary_warped):
-    """
-    Lane line detected in previous frame, start searching using previous data
-    :param binary_warped:
-    :return: Polynomial coefficients
-    """
-    left_fit = line_left_data.current_fit
-    right_fit = line_right_data.current_fit
-
-    # Assume you now have a new warped binary image from the next frame of video (also called "binary_warped")
-    # It's now much easier to find line pixels!
-    nonzero = binary_warped.nonzero()
-    nonzeroy = np.array(nonzero[0])
-    nonzerox = np.array(nonzero[1])
-    margin = 100
-    left_lane_inds = ((nonzerox > (left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy +
-                                   left_fit[2] - margin)) & (nonzerox < (left_fit[0] * (nonzeroy ** 2) +
-                                                                         left_fit[1] * nonzeroy + left_fit[
-                                                                             2] + margin)))
-
-    right_lane_inds = ((nonzerox > (right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy +
-                                    right_fit[2] - margin)) & (nonzerox < (right_fit[0] * (nonzeroy ** 2) +
-                                                                           right_fit[1] * nonzeroy + right_fit[
-                                                                               2] + margin)))
-
-    # Again, extract left and right line pixel positions
-    leftx = nonzerox[left_lane_inds]
-    lefty = nonzeroy[left_lane_inds]
-    rightx = nonzerox[right_lane_inds]
-    righty = nonzeroy[right_lane_inds]
-
-    if (not any(righty)) or (not any(lefty)):
-        return [], []
-
-    # Fit a second order polynomial to each
-    left_fit = np.polyfit(lefty, leftx, 2)
-    right_fit = np.polyfit(righty, rightx, 2)
-
-    return left_fit, right_fit
-
-def calc_lane(binary_warped, left_fit, right_fit):
-    """
-
-    :param binary_warped:
-    :param left_fit:
-    :param right_fit:
-    :return:
-    """
-    #
-    ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
-    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
-    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
-
-    # ------------------------------------------------------
-    # Now we have polynomial fits and we can calculate the radius of curvature as follows:
-
-    # Define y-value where we want radius of curvature. I'll choose the maximum y-value, corresponding to the
-    # bottom of the image
-    y_eval = np.max(ploty)
-    # left_curverad = ((1 + (2 * left_fit[0] * y_eval + left_fit[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit[0])
-    # right_curverad = ((1 + (2 * right_fit[0] * y_eval + right_fit[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit[0])
-    # print(left_curverad, right_curverad)
-    # Example values: 1926.74 1908.48
-
-    # Define conversions in x and y from pixels space to meters
-    ym_per_pix = 30 / 720  # meters per pixel in y dimension
-    xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
-
-    # Fit new polynomials to x,y in world space
-    left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
-    right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
-    # Calculate the new radii of curvature
-    left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
-        2 * left_fit_cr[0])
-    right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
-        2 * right_fit_cr[0])
-    avg_curverad = (left_curverad + right_curverad) / 2
-    # Now our radius of curvature is in meters
-    # print(left_curverad, 'm', right_curverad, 'm')
-    # Example values: 632.1 m    626.2 m
-
-    # --------------------------------------------------------------
-    # Validation
-    # --------------------------------------------------------------
-    problem = False
-    max_lane_width = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
-    # print('max_diff: {0} meters. max is 3.7 meters.'.format(max_diff))
-
-    if max_lane_width > 4.0:
-        logger.debug('max_lane_width error: {0}'.format(max_lane_width))
-        problem = True
-
-    if (not any(left_fit)) or (not any(right_fit)):
-        problem = True
-
-    if avg_curverad < 200.0:
-        logger.debug('bad avg curve: {0}'.format(avg_curverad))
-        problem = True
-
-    # Validate curvature
-    if line_left_data.radius_of_curvature and line_right_data.radius_of_curvature:
-        logger.debug('radius left diff: {0:,.2f}'.format(abs(line_left_data.radius_of_curvature - left_curverad)))
-        logger.debug('radius right diff: {0:,.2f}'.format(abs(line_right_data.radius_of_curvature - right_curverad)))
-
-    return problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad
-
-def find_lane(r, g, b):
-    """
-
-    :param r: binary warped red
-    :param g: binary warped green
-    :param b: binary warped blue
-    :return:
-    """
-    logger.debug('\n-------------------------------------------------------------')
-    # method = None
-
-    # Compute the Polynomial coefficients
-    if not line_left_data.detected:
-        # We did not find a lane line in the previous frame, lets search using histogram
-        left_fit, right_fit = find_lane_histogram(g)  # use green channel
-        method = 'histogram g'
-    else:
-        # Lane line detected in previous frame, start searching using previous data
-        left_fit, right_fit = find_lane_using_previous(g)  # use green channel
-        method = 'previous g'
-
-    problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = calc_lane(g, left_fit, right_fit)
-
-    # try histogram
-    if problem and line_left_data.detected:
-        left_fit, right_fit = find_lane_histogram(g)
-        method = 'histogram retry g'
-        problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = calc_lane(g, left_fit, right_fit)
-
-        # try blue channel
-        if problem:
-            left_fit, right_fit = find_lane_histogram(b)
-            method = 'histogram retry b'
-            problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = calc_lane(b, left_fit, right_fit)
-
-            # use last average
-            if problem:
-                method = 'use last average'
-                logger.debug('Using method: {0}'.format(method))
-                line_left_data.detected = False
-                line_right_data.detected = False
-
-                avg_curverad = (line_left_data.radius_of_curvature + line_right_data.radius_of_curvature) / 2
-
-                current_stats_df = pd.DataFrame(data={'left_curverad': line_left_data.radius_of_curvature,
-                                                      'right_curverad': line_right_data.radius_of_curvature,
-                                                      'avg_curverad': avg_curverad,
-                                                      'method': method}, index=[0])
-
-                return line_left_data.bestx, line_right_data.bestx, ploty, avg_curverad, current_stats_df
-
-    # -----------------------------------------------------------------
-    # Save curve/line/lane data
-    # -----------------------------------------------------------------
-    # Detection - was the line detected in the last iteration?
-    line_left_data.detected = True
-    line_right_data.detected = True
-    # x values for detected line pixels
-    line_left_data.allx.append(left_fitx)
-    line_right_data.allx.append(right_fitx)
-    # y values for detected line pixels
-    # line_left_data.ally = None
-    # line_right_data.ally = None
-    # Current fit - polynomial coefficients for the most recent fit
-    line_left_data.current_fit = left_fit
-    line_right_data.current_fit = right_fit
-    # Curve - radius of curvature of the line in some units
-    line_left_data.radius_of_curvature = left_curverad
-    line_right_data.radius_of_curvature = right_curverad
-    # average x values of the fitted line over the last 3 iterations
-    line_left_data.bestx = np.average(line_left_data.allx[-3:], axis=0)
-    line_right_data.bestx = np.average(line_right_data.allx[-3:], axis=0)
-
-    # x values of the last n fits of the line
-    line_left_data.recent_xfitted.append(left_fit)
-    line_right_data.recent_xfitted.append(right_fit)
-    # polynomial coefficients averaged over the last 3 iterations
-    line_left_data.best_fit = np.average(line_left_data.recent_xfitted[-3:], axis=0)
-    line_right_data.best_fit = np.average(line_right_data.recent_xfitted[-3:], axis=0)
-
-    # -----------------------------------------------------------------
-    # Print
-    # -----------------------------------------------------------------
-    logger.debug('Using method: {0}'.format(method))
-    logger.debug('left_curverad: {0:,.2f}'.format(left_curverad))
-    logger.debug('right_curverad: {0:,.2f}'.format(right_curverad))
-    logger.debug('avg_curverad: {0:,.2f}'.format(avg_curverad))
-
-    current_stats_df = pd.DataFrame(data={'left_curverad': left_curverad,
-                            'right_curverad': right_curverad,
-                            'avg_curverad': avg_curverad,
-                            'method': method}, index=[0])
-
-    logger.debug('-------------------------------------------------------------')
-
-    return left_fitx, right_fitx, ploty, avg_curverad, current_stats_df
-
-
 def calibrate_camera_and_pers_transform():
     global mtx, dist, M, Minv
 
@@ -579,10 +600,6 @@ def run_on_test_images():
 
 def run_on_video():
     calibrate_camera_and_pers_transform()
-
-    global line_left_data, line_right_data
-    line_left_data = Line()
-    line_right_data = Line()
 
     blah = Blah()
 
