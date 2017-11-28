@@ -14,11 +14,16 @@ Output visual display of the lane boundaries and numerical estimation of lane cu
 """
 import os
 import cv2
+import pandas as pd
 import traceback
 import numpy as np
 import matplotlib.pyplot as plt
 # Import everything needed to edit/save/watch video clips
 from moviepy.editor import VideoFileClip
+import logging
+
+logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
+logger = logging.getLogger('model')
 
 IMG_SIZE = (1280, 720)
 
@@ -49,6 +54,71 @@ class Line():
         self.allx = []
         # y values for detected line pixels
         self.ally = []
+
+class Blah():
+    def __init__(self):
+        self.stats_df = pd.DataFrame()
+        self.num_frame = 0
+
+    def process_image(self, image):
+        # NOTE: The output you return should be a color image (3 channel) for processing video below
+        # TODO: put your pipeline here,
+        # you should return the final output (image where lines are drawn on lanes)
+        img_final = self.draw_lane_lines(image)
+        return img_final
+
+    def draw_lane_lines(self, img_data):
+        """
+
+        :param img_data:
+        :return:
+        """
+        # Using the camera matrix and distortion coeff, undistort the image
+        undist = cv2.undistort(src=img_data, cameraMatrix=mtx, distCoeffs=dist, newCameraMatrix=None, dst=mtx)
+
+        binary = generate_binary(img_data)
+
+        # Warp an image using the perspective transform, M:
+        binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
+
+        # Split the binary warped image to its RGB channels
+        r, g, b = cv2.split(binary_warped)
+
+        # Find lane lines
+        left_fitx, right_fitx, ploty, avg_curverad, current_stats_df = find_lane(r, g, b)
+
+        # -----------------------------------------------------------------
+        # OVERLAY
+        # -----------------------------------------------------------------
+        # Create an image to draw the lines on
+        warp_zero = np.zeros_like(b).astype(np.uint8)
+        color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+
+        # Recast the x and y points into usable format for cv2.fillPoly()
+        pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+        pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+        pts = np.hstack((pts_left, pts_right))
+
+        # Draw the lane onto the warped blank image
+        cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
+
+        # Warp the blank back to original image space using inverse perspective matrix (Minv)
+        newwarp = cv2.warpPerspective(color_warp, Minv, IMG_SIZE)
+        # Combine the result with the original image
+        result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
+
+        current_stats_df['num_frame'] = self.num_frame
+        self.stats_df = self.stats_df.append(current_stats_df)
+
+        # Add text overlay
+        cv2.putText(img=result, text='avg_curverad: {0:,.2f}'.format(avg_curverad), org=(10, 100),
+                    fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+        cv2.putText(img=result, text=str(self.num_frame), org=(10, 150),
+                    fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+
+        self.num_frame += 1
+
+        return result
 
 def visualize(img_data, img_data_2):
     # # Plot the result
@@ -320,8 +390,8 @@ def calc_lane(binary_warped, left_fit, right_fit):
     # Define y-value where we want radius of curvature. I'll choose the maximum y-value, corresponding to the
     # bottom of the image
     y_eval = np.max(ploty)
-    left_curverad = ((1 + (2 * left_fit[0] * y_eval + left_fit[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit[0])
-    right_curverad = ((1 + (2 * right_fit[0] * y_eval + right_fit[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit[0])
+    # left_curverad = ((1 + (2 * left_fit[0] * y_eval + left_fit[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit[0])
+    # right_curverad = ((1 + (2 * right_fit[0] * y_eval + right_fit[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit[0])
     # print(left_curverad, right_curverad)
     # Example values: 1926.74 1908.48
 
@@ -337,58 +407,86 @@ def calc_lane(binary_warped, left_fit, right_fit):
         2 * left_fit_cr[0])
     right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
         2 * right_fit_cr[0])
+    avg_curverad = (left_curverad + right_curverad) / 2
     # Now our radius of curvature is in meters
-    print(left_curverad, 'm', right_curverad, 'm')
+    # print(left_curverad, 'm', right_curverad, 'm')
     # Example values: 632.1 m    626.2 m
 
     # --------------------------------------------------------------
     # Validation
     # --------------------------------------------------------------
     problem = False
-    max_diff = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
-    print('max_diff: {0} meters. max is 3.7 meters.'.format(max_diff))
+    max_lane_width = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
+    # print('max_diff: {0} meters. max is 3.7 meters.'.format(max_diff))
 
-    if max_diff > 4.3:
+    if max_lane_width > 4.0:
+        logger.debug('max_lane_width error: {0}'.format(max_lane_width))
         problem = True
 
     if (not any(left_fit)) or (not any(right_fit)):
         problem = True
 
+    if avg_curverad < 200.0:
+        logger.debug('bad avg curve: {0}'.format(avg_curverad))
+        problem = True
+
     # Validate curvature
     if line_left_data.radius_of_curvature and line_right_data.radius_of_curvature:
-        print(abs(line_left_data.radius_of_curvature - left_curverad))
-        print(abs(line_right_data.radius_of_curvature - right_curverad))
+        logger.debug('radius left diff: {0:,.2f}'.format(abs(line_left_data.radius_of_curvature - left_curverad)))
+        logger.debug('radius right diff: {0:,.2f}'.format(abs(line_right_data.radius_of_curvature - right_curverad)))
 
-    return problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad
+    return problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad
 
-def find_lane(binary_warped):
+def find_lane(r, g, b):
     """
 
-    :param binary_warped:
+    :param r: binary warped red
+    :param g: binary warped green
+    :param b: binary warped blue
     :return:
     """
+    logger.debug('\n-------------------------------------------------------------')
+    # method = None
+
     # Compute the Polynomial coefficients
     if not line_left_data.detected:
         # We did not find a lane line in the previous frame, lets search using histogram
-        left_fit, right_fit = find_lane_histogram(binary_warped)
-        print('using histogram')
+        left_fit, right_fit = find_lane_histogram(g)  # use green channel
+        method = 'histogram g'
     else:
         # Lane line detected in previous frame, start searching using previous data
-        left_fit, right_fit = find_lane_using_previous(binary_warped)
-        print('using previous')
+        left_fit, right_fit = find_lane_using_previous(g)  # use green channel
+        method = 'previous g'
 
-    problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad = calc_lane(binary_warped, left_fit, right_fit)
+    problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = calc_lane(g, left_fit, right_fit)
 
     # try histogram
     if problem and line_left_data.detected:
-        left_fit, right_fit = find_lane_histogram(binary_warped)
-        problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad = calc_lane(binary_warped, left_fit, right_fit)
+        left_fit, right_fit = find_lane_histogram(g)
+        method = 'histogram retry g'
+        problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = calc_lane(g, left_fit, right_fit)
 
-        # use last average
+        # try blue channel
         if problem:
-            line_left_data.detected = False
-            line_right_data.detected = False
-            return line_left_data.bestx, line_right_data.bestx, ploty
+            left_fit, right_fit = find_lane_histogram(b)
+            method = 'histogram retry b'
+            problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = calc_lane(b, left_fit, right_fit)
+
+            # use last average
+            if problem:
+                method = 'use last average'
+                logger.debug('Using method: {0}'.format(method))
+                line_left_data.detected = False
+                line_right_data.detected = False
+
+                avg_curverad = (line_left_data.radius_of_curvature + line_right_data.radius_of_curvature) / 2
+
+                current_stats_df = pd.DataFrame(data={'left_curverad': line_left_data.radius_of_curvature,
+                                                      'right_curverad': line_right_data.radius_of_curvature,
+                                                      'avg_curverad': avg_curverad,
+                                                      'method': method}, index=[0])
+
+                return line_left_data.bestx, line_right_data.bestx, ploty, avg_curverad, current_stats_df
 
     # -----------------------------------------------------------------
     # Save curve/line/lane data
@@ -408,59 +506,34 @@ def find_lane(binary_warped):
     # Curve - radius of curvature of the line in some units
     line_left_data.radius_of_curvature = left_curverad
     line_right_data.radius_of_curvature = right_curverad
-    # x values of the last n fits of the line
-    line_left_data.recent_xfitted = left_fitx
-    line_right_data.recent_xfitted = right_fitx
     # average x values of the fitted line over the last 3 iterations
     line_left_data.bestx = np.average(line_left_data.allx[-3:], axis=0)
     line_right_data.bestx = np.average(line_right_data.allx[-3:], axis=0)
-    # polynomial coefficients averaged over the last n iterations
-    line_left_data.best_fit = None
-    line_right_data.best_fit = None
 
-    return left_fitx, right_fitx, ploty
-
-def draw_lane_lines(img_data):
-    """
-
-    :param img_data:
-    :return:
-    """
-    # Using the camera matrix and distortion coeff, undistort the image
-    undist = cv2.undistort(src=img_data, cameraMatrix=mtx, distCoeffs=dist, newCameraMatrix=None, dst=mtx)
-
-    binary = generate_binary(img_data)
-
-    # Warp an image using the perspective transform, M:
-    binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
-
-    # Split the binary warped image to its RGB channels
-    r, g, b = cv2.split(binary_warped)
-
-    # Find lane lines
-    left_fitx, right_fitx, ploty = find_lane(g)
+    # x values of the last n fits of the line
+    line_left_data.recent_xfitted.append(left_fit)
+    line_right_data.recent_xfitted.append(right_fit)
+    # polynomial coefficients averaged over the last 3 iterations
+    line_left_data.best_fit = np.average(line_left_data.recent_xfitted[-3:], axis=0)
+    line_right_data.best_fit = np.average(line_right_data.recent_xfitted[-3:], axis=0)
 
     # -----------------------------------------------------------------
-    # OVERLAY
+    # Print
     # -----------------------------------------------------------------
-    # Create an image to draw the lines on
-    warp_zero = np.zeros_like(b).astype(np.uint8)
-    color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+    logger.debug('Using method: {0}'.format(method))
+    logger.debug('left_curverad: {0:,.2f}'.format(left_curverad))
+    logger.debug('right_curverad: {0:,.2f}'.format(right_curverad))
+    logger.debug('avg_curverad: {0:,.2f}'.format(avg_curverad))
 
-    # Recast the x and y points into usable format for cv2.fillPoly()
-    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
-    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
-    pts = np.hstack((pts_left, pts_right))
+    current_stats_df = pd.DataFrame(data={'left_curverad': left_curverad,
+                            'right_curverad': right_curverad,
+                            'avg_curverad': avg_curverad,
+                            'method': method}, index=[0])
 
-    # Draw the lane onto the warped blank image
-    cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
+    logger.debug('-------------------------------------------------------------')
 
-    # Warp the blank back to original image space using inverse perspective matrix (Minv)
-    newwarp = cv2.warpPerspective(color_warp, Minv, IMG_SIZE)
-    # Combine the result with the original image
-    result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
+    return left_fitx, right_fitx, ploty, avg_curverad, current_stats_df
 
-    return result
 
 def calibrate_camera_and_pers_transform():
     global mtx, dist, M, Minv
@@ -473,7 +546,11 @@ def calibrate_camera_and_pers_transform():
 
 def run_on_test_images():
     """
-
+    Distortion correction (coefficients)
+    Color & Gradient threshold to create a binary image
+    Perspective transform
+    Detect lane lines
+    Determine the lane curvature
     :return:
     """
     calibrate_camera_and_pers_transform()
@@ -481,17 +558,12 @@ def run_on_test_images():
     path = r'test_images/'
 
     for image_file_name in os.listdir(path):
-        # Distortion correction (coefficients)
-
-        # Color & Gradient threshold to create a binary image
-        # Perspective transform
-        # Detect lane lines
-        # Determine the lane curvature
 
         # Read image using opencv
         img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
 
-        result = draw_lane_lines(img_data)
+        blah = Blah()
+        result = blah.draw_lane_lines(img_data)
 
         # Plot the result
         f, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
@@ -505,20 +577,14 @@ def run_on_test_images():
 
         pass
 
-
-def process_image(image):
-    # NOTE: The output you return should be a color image (3 channel) for processing video below
-    # TODO: put your pipeline here,
-    # you should return the final output (image where lines are drawn on lanes)
-    img_final = draw_lane_lines(image)
-    return img_final
-
 def run_on_video():
     calibrate_camera_and_pers_transform()
 
     global line_left_data, line_right_data
     line_left_data = Line()
     line_right_data = Line()
+
+    blah = Blah()
 
     white_output = 'project_video_output.mp4'
     ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
@@ -529,8 +595,10 @@ def run_on_video():
     clip1 = VideoFileClip("project_video.mp4").subclip(21, 23)
     # clip1 = VideoFileClip("project_video.mp4")
 
-    white_clip = clip1.fl_image(process_image)  # NOTE: this function expects color images!!
+    white_clip = clip1.fl_image(blah.process_image)  # NOTE: this function expects color images!!
     white_clip.write_videofile(white_output, audio=False)
+
+    print(blah.stats_df.to_string())
 
 if __name__ == '__main__':
     # run_on_test_images()
