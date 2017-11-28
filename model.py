@@ -289,12 +289,19 @@ class Blah():
             problem = True
 
         # Compute the average distance between the new and the old polynomials
-        # mean_distance_left = 0
-        # poly2_left = recent_xfitted[-1:]
-        # for i in len(left_fitx):
-        #     mean_distance_left += (left_fitx[i][0] - poly2[i][0]) ^ 2 + (left_fitx[i][1] - poly2[i][1]) ^ 2
-        #     mean_distance_left /= len(left_fitx)
-        #     mean_distance_left = sqrt(mean_distance_left)
+        mean_distance_left = 0
+        poly2_left = self.line_left_data.recent_xfitted[-1:]
+        for i in len(left_fitx):
+            mean_distance_left += (left_fitx[i][0] - poly2_left[i][0]) ^ 2 + (left_fitx[i][1] - poly2_left[i][1]) ^ 2
+            mean_distance_left /= len(left_fitx)
+            mean_distance_left = sqrt(mean_distance_left)
+
+        mean_distance_right = 0
+        poly2_right = self.line_right_data.recent_xfitted[-1:]
+        for i in len(right_fitx):
+            mean_distance_right += (left_fitx[i][0] - poly2_right[i][0]) ^ 2 + (left_fitx[i][1] - poly2_right[i][1]) ^ 2
+            mean_distance_right /= len(left_fitx)
+            mean_distance_right = sqrt(mean_distance_right)
 
         # Validate curvature
         if self.line_left_data.radius_of_curvature and self.line_right_data.radius_of_curvature:
