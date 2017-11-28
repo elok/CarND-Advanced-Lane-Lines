@@ -424,8 +424,6 @@ def find_lane(binary_warped):
         problem = True
 
     # Validate curvature
-    # line_left_data.radius_of_curvature
-    # line_right_data.radius_of_curvature
     if line_left_data.radius_of_curvature and line_right_data.radius_of_curvature:
         print(abs(line_left_data.radius_of_curvature - left_curverad))
         print(abs(line_right_data.radius_of_curvature - right_curverad))
@@ -433,7 +431,6 @@ def find_lane(binary_warped):
     if problem:
         line_left_data.detected = False
         line_right_data.detected = False
-        # return [], [], []
         return line_left_data.bestx, line_right_data.bestx, ploty
 
     # -----------------------------------------------------------------
@@ -445,10 +442,6 @@ def find_lane(binary_warped):
     # x values for detected line pixels
     line_left_data.allx.append(left_fitx)
     line_right_data.allx.append(right_fitx)
-
-    print(left_fitx[0])
-    print([x[0] for x in line_left_data.allx])
-
     # y values for detected line pixels
     # line_left_data.ally = None
     # line_right_data.ally = None
@@ -599,5 +592,5 @@ def run_on_video():
     white_clip.write_videofile(white_output, audio=False)
 
 if __name__ == '__main__':
-    # run_on_test_images()
-    run_on_video()
+    run_on_test_images()
+    # run_on_video()
