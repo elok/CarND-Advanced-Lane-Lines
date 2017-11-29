@@ -17,7 +17,6 @@ import cv2
 import pandas as pd
 import traceback
 import numpy as np
-from math import sqrt
 import matplotlib.pyplot as plt
 # Import everything needed to edit/save/watch video clips
 from moviepy.editor import VideoFileClip
@@ -67,8 +66,6 @@ class Calc_Lane_Results():
         self.left_curverad = None
         self.right_curverad = None
         self.avg_curverad = None
-        # self.mean_distance_left = None
-        # self.mean_distance_right = None
         self.center_offset_meters = None
         self.lane_width = None
 
@@ -134,10 +131,13 @@ class Blah():
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
         cv2.putText(img=result, text='Frame: {0}'.format(str(self.num_frame)), org=(10, 50),
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
-        cv2.putText(img=result, text='Offset from center: {0:,.2f} meters'.format(current_stats_df['center_offset_meters'][0]),
-                    org=(10, 80), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
-        cv2.putText(img=result, text='Lane width: {0:,.2f} meters'.format(current_stats_df['lane_width'][0]),
-                    org=(10, 110), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+        try:
+            cv2.putText(img=result, text='Offset from center: {0:,.2f} meters'.format(current_stats_df['center_offset_meters'][0]),
+                        org=(10, 80), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+            cv2.putText(img=result, text='Lane width: {0:,.2f} meters'.format(current_stats_df['lane_width'][0]),
+                        org=(10, 110), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+        except:
+            pass
 
         self.num_frame += 1
 
@@ -149,14 +149,14 @@ class Blah():
 
     def find_lane(self, r, g, b):
         """
-
+        Given the RGB channels of the binary warped image, find the lane lines using various methods. This method
+        is called ONCE per lane line. calc_line() is called multiple times to find the most optimal line.
         :param r: binary warped red
         :param g: binary warped green
         :param b: binary warped blue
-        :return:
+        :return: fitted left and right lines and stats
         """
         logger.debug('\n-------------------------------------------------------------')
-        # method = None
 
         # Compute the Polynomial coefficients
         if not self.line_left_data.detected:
@@ -171,7 +171,8 @@ class Blah():
         lane_results = self.calc_lane(g, left_fit, right_fit)
 
         # try histogram
-        if lane_results.problem and self.line_left_data.detected:
+        # if lane_results.problem and self.line_left_data.detected:
+        if lane_results.problem:
             left_fit, right_fit = find_lane_histogram(g)
             method = 'histogram retry g'
             lane_results = self.calc_lane(g, left_fit, right_fit)
@@ -182,8 +183,8 @@ class Blah():
                 method = 'histogram retry b'
                 lane_results = self.calc_lane(b, left_fit, right_fit)
 
-                # use last average
-                if lane_results.problem:
+                # use last average. check if line detected in last frame -- cant use average if no lines.
+                if lane_results.problem and self.line_left_data.detected:
                     method = 'use last average'
                     logger.debug('Using method: {0}'.format(method))
                     self.line_left_data.detected = False
@@ -195,13 +196,8 @@ class Blah():
                     lane_results.right_fitx = self.line_right_data.bestx
                     lane_results.avg_curverad = avg_curverad
 
-                    # current_stats_df = pd.DataFrame(data={'left_curverad': self.line_left_data.radius_of_curvature,
-                    #                                       'right_curverad': self.line_right_data.radius_of_curvature,
-                    #                                       'avg_curverad': avg_curverad,
-                    #                                       'method': method}, index=[0])
-                    #
-                    # return self.line_left_data.bestx, self.line_right_data.bestx, \
-                    #        lane_results.ploty, avg_curverad, current_stats_df
+                    left_fit = self.line_left_data.current_fit
+                    right_fit = self.line_right_data.current_fit
 
         # -----------------------------------------------------------------
         # Save curve/line/lane data
@@ -222,26 +218,29 @@ class Blah():
         self.line_left_data.radius_of_curvature = lane_results.left_curverad
         self. line_right_data.radius_of_curvature = lane_results.right_curverad
         # average x values of the fitted line over the last 3 iterations
-        self.line_left_data.bestx = np.average(self.line_left_data.allx[-3:], axis=0)
-        self.line_right_data.bestx = np.average(self.line_right_data.allx[-3:], axis=0)
-
+        self.line_left_data.bestx = np.average(self.line_left_data.allx[-5:], axis=0)
+        self.line_right_data.bestx = np.average(self.line_right_data.allx[-5:], axis=0)
         # x values of the last n fits of the line
-        self.line_left_data.recent_xfitted.append(left_fit)
-        self.line_right_data.recent_xfitted.append(right_fit)
+        if any(left_fit):
+            self.line_left_data.recent_xfitted.append(left_fit)
+        if any(right_fit):
+            self.line_right_data.recent_xfitted.append(right_fit)
         # polynomial coefficients averaged over the last 3 iterations
-        self.line_left_data.best_fit = np.average(self.line_left_data.recent_xfitted[-3:], axis=0)
-        self.line_right_data.best_fit = np.average(self.line_right_data.recent_xfitted[-3:], axis=0)
+        self.line_left_data.best_fit = np.average(self.line_left_data.recent_xfitted[-5:], axis=0)
+        self.line_right_data.best_fit = np.average(self.line_right_data.recent_xfitted[-5:], axis=0)
 
-        current_stats_df = pd.DataFrame(data={'left_curverad': lane_results.left_curverad,
+        # Save stats for analysis
+        if lane_results.left_curverad and lane_results.right_curverad:
+            current_stats_df = pd.DataFrame(data={'left_curverad': lane_results.left_curverad,
                                               'right_curverad': lane_results.right_curverad,
                                               'avg_curverad': lane_results.avg_curverad,
                                               'method': method,
-                                              # 'mean_distance_left': lane_results.mean_distance_left,
-                                              # 'mean_distance_right': lane_results.mean_distance_right,
                                               'center_offset_meters': lane_results.center_offset_meters,
                                               'lane_width': lane_results.lane_width,
                                               'issue': lane_results.issue},
                                         index=[0])
+        else:
+            current_stats_df = pd.DataFrame()
 
         logger.debug('-------------------------------------------------------------')
 
@@ -250,91 +249,91 @@ class Blah():
 
     def calc_lane(self, binary_warped, left_fit, right_fit):
         """
-
-        :param binary_warped:
-        :param left_fit:
-        :param right_fit:
-        :return:
+        Given a binary warped image and the polynomial coefficients for the left and right lane, calculate the
+        polynomial fits and then check if it makes sense. If it doesn't make sense, then this method will be
+        called again with other parameters.
+        :param binary_warped: binary warped image
+        :param left_fit: left lane polynomial coefficients
+        :param right_fit: right lane polynomial coefficients
+        :return: Calc_Lane_Results class which contains all the results like fit, curve, lane width, etc
         """
-        #
+        problem = False
+        issue = None
+
         ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
-        left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
-        right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
-        # ------------------------------------------------------
-        # Now we have polynomial fits and we can calculate the radius of curvature as follows:
+        if any(left_fit) and any(right_fit):
+            # Given polynomial coefficients, calculate the polynomial fits for left and right lane
+            left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+            right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
-        # Define y-value where we want radius of curvature. I'll choose the maximum y-value, corresponding to the
-        # bottom of the image
-        y_eval = np.max(ploty)
-        # left_curverad = ((1 + (2 * left_fit[0] * y_eval + left_fit[1]) ** 2) ** 1.5) / np.absolute(2 * left_fit[0])
-        # right_curverad = ((1 + (2 * right_fit[0] * y_eval + right_fit[1]) ** 2) ** 1.5) / np.absolute(2 * right_fit[0])
-        # print(left_curverad, right_curverad)
-        # Example values: 1926.74 1908.48
+            # ------------------------------------------------------
+            # Now we have polynomial fits and we can calculate the radius of curvature as follows:
 
-        # Define conversions in x and y from pixels space to meters
-        ym_per_pix = 30 / 720  # meters per pixel in y dimension
-        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+            # Define y-value where we want radius of curvature. I'll choose the maximum y-value, corresponding to the
+            # bottom of the image
+            y_eval = np.max(ploty)
 
-        # Fit new polynomials to x,y in world space
-        left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
-        right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
-        # Calculate the new radii of curvature
-        left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
-            2 * left_fit_cr[0])
-        right_curverad = (
-                         (1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
-            2 * right_fit_cr[0])
-        avg_curverad = (left_curverad + right_curverad) / 2
-        # Now our radius of curvature is in meters
-        # print(left_curverad, 'm', right_curverad, 'm')
-        # Example values: 632.1 m    626.2 m
+            # Define conversions in x and y from pixels space to meters
+            ym_per_pix = 30 / 720  # meters per pixel in y dimension
+            xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+
+            # Fit new polynomials to x,y in world space
+            left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
+            right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
+            # Calculate the new radii of curvature ..and our radius of curvature is in meters
+            left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / \
+                            np.absolute(2 * left_fit_cr[0])
+            right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / \
+                             np.absolute(2 * right_fit_cr[0])
+            avg_curverad = (left_curverad + right_curverad) / 2
+
+            # Calc max lane width
+            max_lane_width = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
+
+            # Calc Center Offset
+            camera_position = 1280 / 2
+            lane_center = (right_fitx[719] + left_fitx[719]) / 2
+            center_offset_pixels = abs(camera_position - lane_center)
+            center_offset_meters = center_offset_pixels * xm_per_pix
+
+            # Calc lane width
+            lane_width = abs(right_fitx[719] - left_fitx[719]) * xm_per_pix
+        else:
+            # left_fit and right_fit is blank
+            problem = True
+            left_fitx = self.line_left_data.current_fit
+            right_fitx = self.line_right_data.current_fit
+            left_curverad = self.line_left_data.radius_of_curvature
+            right_curverad = self.line_right_data.radius_of_curvature
+            avg_curverad = (left_curverad + right_curverad) / 2
+            center_offset_meters, lane_width = 0, 0
 
         # --------------------------------------------------------------
         # Validation
         # --------------------------------------------------------------
-        problem = False
-        issue = None
-        max_lane_width = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
-        # print('max_diff: {0} meters. max is 3.7 meters.'.format(max_diff))
-
-        if max_lane_width > 4.0:
+        if (not any(left_fit)) or (not any(right_fit)):
+            issue = 'histogram could not find lane'
+            logger.debug(issue)
+            problem = True
+        elif (max_lane_width > 4.0) or (max_lane_width < 2.5):
             issue = 'BAD max_lane_width error: {0}'.format(max_lane_width)
             logger.debug(issue)
             problem = True
-
-        if (not any(left_fit)) or (not any(right_fit)):
-            problem = True
-
-        if avg_curverad < 400.0:
+        elif avg_curverad < 400.0:
             issue = 'BAD avg curve: {0}'.format(avg_curverad)
             logger.debug(issue)
             problem = True
-
-        # center offset
-        camera_position = 1280 / 2
-        lane_center = (right_fitx[719] + left_fitx[719]) / 2
-        center_offset_pixels = abs(camera_position - lane_center)
-        center_offset_meters = center_offset_pixels * xm_per_pix
-
-        if center_offset_meters > 0.3:
+        elif center_offset_meters > 0.41:
             issue = 'BAD center_offset_meters: {0}'.format(center_offset_meters)
             logger.debug(issue)
             problem = True
-
-        lane_width = abs(right_fitx[719] - left_fitx[719]) * xm_per_pix
-        if lane_width > 3.5:
+        elif lane_width > 3.5:
             issue = 'BAD lane_width: {0}'.format(lane_width)
             logger.debug(issue)
             problem = True
 
-        # Validate curvature
-        if self.line_left_data.radius_of_curvature and self.line_right_data.radius_of_curvature:
-            logger.debug(
-                'radius left diff: {0:,.2f}'.format(abs(self.line_left_data.radius_of_curvature - left_curverad)))
-            logger.debug(
-                'radius right diff: {0:,.2f}'.format(abs(self.line_right_data.radius_of_curvature - right_curverad)))
-
+        # Save results
         lane_results = Calc_Lane_Results()
         lane_results.problem = problem
         lane_results.issue = issue
@@ -367,7 +366,6 @@ class Blah():
                                        left_fit[2] - margin)) & (nonzerox < (left_fit[0] * (nonzeroy ** 2) +
                                                                              left_fit[1] * nonzeroy + left_fit[
                                                                                  2] + margin)))
-
         right_lane_inds = ((nonzerox > (right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy +
                                         right_fit[2] - margin)) & (nonzerox < (right_fit[0] * (nonzeroy ** 2) +
                                                                                right_fit[1] * nonzeroy + right_fit[
@@ -622,7 +620,6 @@ def run_on_test_images():
     path = r'test_images/'
 
     for image_file_name in os.listdir(path):
-
         # Read image using opencv
         img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
 
@@ -637,9 +634,10 @@ def run_on_test_images():
         ax2.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
         ax2.set_title('Pipeline Result', fontsize=12)
         plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-        plt.show()
+        # plt.show()
 
-        pass
+        # Save image
+        cv2.imwrite(os.path.join(r'output_images/', image_file_name), result)  # BGR
 
 def run_on_video():
     calibrate_camera_and_pers_transform()
@@ -651,7 +649,7 @@ def run_on_video():
     ## To do so add .subclip(start_second,end_second) to the end of the line below
     ## Where start_second and end_second are integer values representing the start and end of the subclip
     ## You may also uncomment the following line for a subclip of the first 5 seconds
-    # clip1 = VideoFileClip("project_video.mp4").subclip(41, 44)
+    # clip1 = VideoFileClip("project_video.mp4").subclip(0, 25)
     # clip1 = VideoFileClip("project_video.mp4").subclip(21, 23)
     clip1 = VideoFileClip("project_video.mp4")
 
@@ -662,5 +660,5 @@ def run_on_video():
     blah.stats_df.to_csv(r'test.csv')
 
 if __name__ == '__main__':
-    # run_on_test_images()
-    run_on_video()
+    run_on_test_images()
+    # run_on_video()
