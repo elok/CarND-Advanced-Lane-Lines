@@ -56,6 +56,19 @@ class Line():
         # y values for detected line pixels
         self.ally = []
 
+class Calc_Lane_Results():
+
+    def __init__(self):
+        self.problem = False
+        self.left_fitx = None
+        self.right_fitx = None
+        self.ploty = None
+        self.left_curverad = None
+        self.right_curverad = None
+        self.avg_curverad = None
+        self.mean_distance_left = None
+        self.mean_distance_right = None
+
 class Blah():
     def __init__(self):
         self.stats_df = pd.DataFrame()
@@ -90,6 +103,15 @@ class Blah():
         # Find lane lines
         left_fitx, right_fitx, ploty, avg_curverad, current_stats_df = self.find_lane(r, g, b)
 
+        # center offset
+        camera_position = undist.shape[1] / 2
+        lane_center = (right_fitx[719] + left_fitx[719]) / 2
+        xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+        center_offset_pixels = abs(camera_position - lane_center)
+        center_offset_meters = center_offset_pixels * xm_per_pix
+
+        lane_width = abs(right_fitx[719] - left_fitx[719]) * xm_per_pix
+
         # -----------------------------------------------------------------
         # OVERLAY
         # -----------------------------------------------------------------
@@ -116,8 +138,12 @@ class Blah():
         # Add text overlay
         cv2.putText(img=result, text='avg_curverad: {0:,.2f}'.format(avg_curverad), org=(10, 100),
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
-        cv2.putText(img=result, text=str(self.num_frame), org=(10, 150),
+        cv2.putText(img=result, text='frame: {0}'.format(str(self.num_frame)), org=(10, 150),
                     fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+        cv2.putText(img=result, text='offset from center: {0} meters'.format(str(center_offset_meters)),
+                    org=(10, 180), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+        cv2.putText(img=result, text='lande width: {0} meters'.format(str(lane_width)),
+                    org=(10, 180), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
 
         self.num_frame += 1
 
@@ -148,26 +174,22 @@ class Blah():
             left_fit, right_fit = self.find_lane_using_previous(g)  # use green channel
             method = 'previous g'
 
-        problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = self.calc_lane(g, left_fit,
-                                                                                                       right_fit)
+        lane_results = self.calc_lane(g, left_fit, right_fit)
 
         # try histogram
-        if problem and self.line_left_data.detected:
+        if lane_results.problem and self.line_left_data.detected:
             left_fit, right_fit = find_lane_histogram(g)
             method = 'histogram retry g'
-            problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = self.calc_lane(g, left_fit,
-                                                                                                           right_fit)
+            lane_results = self.calc_lane(g, left_fit, right_fit)
 
             # try blue channel
-            if problem:
+            if lane_results.problem:
                 left_fit, right_fit = find_lane_histogram(b)
                 method = 'histogram retry b'
-                problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad = self.calc_lane(b,
-                                                                                                               left_fit,
-                                                                                                               right_fit)
+                lane_results = self.calc_lane(b, left_fit, right_fit)
 
                 # use last average
-                if problem:
+                if lane_results.problem:
                     method = 'use last average'
                     logger.debug('Using method: {0}'.format(method))
                     self.line_left_data.detected = False
@@ -180,7 +202,8 @@ class Blah():
                                                           'avg_curverad': avg_curverad,
                                                           'method': method}, index=[0])
 
-                    return self.line_left_data.bestx, self.line_right_data.bestx, ploty, avg_curverad, current_stats_df
+                    return self.line_left_data.bestx, self.line_right_data.bestx, \
+                           lane_results.ploty, avg_curverad, current_stats_df
 
         # -----------------------------------------------------------------
         # Save curve/line/lane data
@@ -189,8 +212,8 @@ class Blah():
         self.line_left_data.detected = True
         self.line_right_data.detected = True
         # x values for detected line pixels
-        self.line_left_data.allx.append(left_fitx)
-        self.line_right_data.allx.append(right_fitx)
+        self.line_left_data.allx.append(lane_results.left_fitx)
+        self.line_right_data.allx.append(lane_results.right_fitx)
         # y values for detected line pixels
         # line_left_data.ally = None
         # line_right_data.ally = None
@@ -198,8 +221,8 @@ class Blah():
         self.line_left_data.current_fit = left_fit
         self.line_right_data.current_fit = right_fit
         # Curve - radius of curvature of the line in some units
-        self.line_left_data.radius_of_curvature = left_curverad
-        self. line_right_data.radius_of_curvature = right_curverad
+        self.line_left_data.radius_of_curvature = lane_results.left_curverad
+        self. line_right_data.radius_of_curvature = lane_results.right_curverad
         # average x values of the fitted line over the last 3 iterations
         self.line_left_data.bestx = np.average(self.line_left_data.allx[-3:], axis=0)
         self.line_right_data.bestx = np.average(self.line_right_data.allx[-3:], axis=0)
@@ -215,18 +238,22 @@ class Blah():
         # Print
         # -----------------------------------------------------------------
         logger.debug('Using method: {0}'.format(method))
-        logger.debug('left_curverad: {0:,.2f}'.format(left_curverad))
-        logger.debug('right_curverad: {0:,.2f}'.format(right_curverad))
-        logger.debug('avg_curverad: {0:,.2f}'.format(avg_curverad))
+        logger.debug('left_curverad: {0:,.2f}'.format(lane_results.left_curverad))
+        logger.debug('right_curverad: {0:,.2f}'.format(lane_results.right_curverad))
+        logger.debug('avg_curverad: {0:,.2f}'.format(lane_results.avg_curverad))
 
-        current_stats_df = pd.DataFrame(data={'left_curverad': left_curverad,
-                                              'right_curverad': right_curverad,
-                                              'avg_curverad': avg_curverad,
-                                              'method': method}, index=[0])
+        current_stats_df = pd.DataFrame(data={'left_curverad': lane_results.left_curverad,
+                                              'right_curverad': lane_results.right_curverad,
+                                              'avg_curverad': lane_results.avg_curverad,
+                                              'method': method,
+                                              'mean_distance_left': lane_results.mean_distance_left,
+                                              'mean_distance_right': lane_results.mean_distance_right},
+                                        index=[0])
 
         logger.debug('-------------------------------------------------------------')
 
-        return left_fitx, right_fitx, ploty, avg_curverad, current_stats_df
+        return lane_results.left_fitx, lane_results.right_fitx, lane_results.ploty, \
+               lane_results.avg_curverad, current_stats_df
 
     def calc_lane(self, binary_warped, left_fit, right_fit):
         """
@@ -289,19 +316,19 @@ class Blah():
             problem = True
 
         # Compute the average distance between the new and the old polynomials
-        mean_distance_left = 0
-        poly2_left = self.line_left_data.recent_xfitted[-1:]
-        for i in len(left_fitx):
-            mean_distance_left += (left_fitx[i][0] - poly2_left[i][0]) ^ 2 + (left_fitx[i][1] - poly2_left[i][1]) ^ 2
-            mean_distance_left /= len(left_fitx)
-            mean_distance_left = sqrt(mean_distance_left)
-
-        mean_distance_right = 0
-        poly2_right = self.line_right_data.recent_xfitted[-1:]
-        for i in len(right_fitx):
-            mean_distance_right += (left_fitx[i][0] - poly2_right[i][0]) ^ 2 + (left_fitx[i][1] - poly2_right[i][1]) ^ 2
-            mean_distance_right /= len(left_fitx)
-            mean_distance_right = sqrt(mean_distance_right)
+        # mean_distance_left = 0
+        # poly2_left = self.line_left_data.recent_xfitted[-1:]
+        # for i in range(len(left_fitx)):
+        #     mean_distance_left += (left_fitx[i] - poly2_left[i]) ^ 2 + (left_fitx[i][1] - poly2_left[i][1]) ^ 2
+        #     mean_distance_left /= len(left_fitx)
+        #     mean_distance_left = sqrt(mean_distance_left)
+        #
+        # mean_distance_right = 0
+        # poly2_right = self.line_right_data.recent_xfitted[-1:]
+        # for i in range(len(right_fitx)):
+        #     mean_distance_right += (right_fitx[i][0] - poly2_right[i][0]) ^ 2 + (right_fitx[i][1] - poly2_right[i][1]) ^ 2
+        #     mean_distance_right /= len(right_fitx)
+        #     mean_distance_right = sqrt(mean_distance_right)
 
         # Validate curvature
         if self.line_left_data.radius_of_curvature and self.line_right_data.radius_of_curvature:
@@ -310,7 +337,17 @@ class Blah():
             logger.debug(
                 'radius right diff: {0:,.2f}'.format(abs(self.line_right_data.radius_of_curvature - right_curverad)))
 
-        return problem, left_fitx, right_fitx, ploty, left_curverad, right_curverad, avg_curverad
+        lane_results = Calc_Lane_Results()
+        lane_results.problem = problem
+        lane_results.left_fitx = left_fitx
+        lane_results.right_fitx = right_fitx
+        lane_results.ploty = ploty
+        lane_results.left_curverad = left_curverad
+        lane_results.right_curverad = right_curverad
+        lane_results.avg_curverad = avg_curverad
+        # lane_results.mean_distance_left = mean_distance_left
+        # lane_results.mean_distance_right = mean_distance_right
+        return lane_results
 
     def find_lane_using_previous(self, binary_warped):
         """
@@ -623,6 +660,7 @@ def run_on_video():
     white_clip.write_videofile(white_output, audio=False)
 
     print(blah.stats_df.to_string())
+    blah.stats_df.to_csv(r'test.csv')
 
 if __name__ == '__main__':
     # run_on_test_images()
