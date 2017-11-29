@@ -590,8 +590,8 @@ def find_lane_histogram(binary_warped):
     righty = nonzeroy[right_lane_inds]
 
     if (not any(righty)) or (not any(lefty)):
-        print('ERROR')
-        return [], [], []
+        logger.debug('ERROR')
+        return [], []
 
     # Fit a second order polynomial to each
     left_fit = np.polyfit(lefty, leftx, 2)
