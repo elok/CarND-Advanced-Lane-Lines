@@ -16,10 +16,10 @@ The goals / steps of this project are the following:
 [image1]: ./output_images/calibration2_undistort.jpg "calibration2_undistort"
 [image2]: ./camera_cal/calibration2.jpg "calibration2_undistort"
 [image3]: ./test_images/straight_lines1.jpg "straight_lines1"
-[image4]: ./examples/warped_straight_lines.jpg "Warp Example"
-[image5]: ./examples/color_fit_lines.jpg "Fit Visual"
-[image6]: ./examples/example_output.jpg "Output"
-[video1]: ./project_video.mp4 "Video"
+[image4]: ./output_images/straight_lines1_binary.jpg "straight_lines1_binary"
+[image5]: ./output_images/straight_lines1_binary_warped.jpg "straight_lines1_binary_warped"
+[image6]: ./output_images/straight_lines1_binary_warped_lane_line_plotted.png "straight_lines1_binary_warped_lane_line_plotted"
+[image7]: ./output_images/straight_lines1_result.jpg "straight_lines1_result"
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
 
@@ -58,7 +58,7 @@ To demonstrate this step, I will describe how I apply the distortion correction 
 
 I used a combination of color and gradient thresholds to generate a binary image (thresholding steps at lines # through # in `another_file.py`).  Here's an example of my output for this step.  (note: this is not actually from one of the test images)
 
-![alt text][image3]
+![alt text][image4]
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
@@ -88,13 +88,13 @@ This resulted in the following source and destination points:
 
 I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
 
-![alt text][image4]
+![alt text][image5]
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
 Then I did some other stuff and fit my lane lines with a 2nd order polynomial kinda like this:
 
-![alt text][image5]
+![alt text][image6]
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
@@ -112,7 +112,7 @@ I implemented this step in lines # through # in my code in `yet_another_file.py`
 
 #### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (wobbly lines are ok but no catastrophic failures that would cause the car to drive off the road!).
 
-Here's a [link to my video result](./project_video.mp4)
+Here's a [link to my video result](./project_video_output.mp4)
 
 ---
 
