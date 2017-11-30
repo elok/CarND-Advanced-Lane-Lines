@@ -84,15 +84,17 @@ Binary warped image:
 <img src="./output_images/straight_lines1_binary_warped.jpg" width="50%" height="50%">
 
 Binary warped image with plotted line:
-<img src="./output_images/straight_lines1_binary_warped_lane_line_plotted.jpg" width="50%" height="50%">
+<img src="./output_images/straight_lines1_binary_warped_lane_line_plotted.png" width="50%" height="50%">
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
-I did this in lines # through # in my code in `my_other_file.py`
+Calculation of the radius of the curvation was also done in the function calc_lane() in file model.py. I also calculated the maximum lane width in meters, lane width at the bottom of the screen in meters, and offset from center in meters. I used all of this to determine if the found lanes lines were found by comparing them across images and then coming up with a threshold.
 
 #### 6. Provide an example image of your result plotted back down onto the road such that the lane area is identified clearly.
 
-I implemented this step in lines # through # in my code in `yet_another_file.py` in the function `map_lane()`.  Here is an example of my result on a test image:
+I implemented this in function draw_lane_lines() in model.py. It creates a blank image, plots the line on the blank image, then uses the inverse perspective matrix to overlay the lane line on top of the original image. 
+
+Here is an example of my result on a test image:
 
 <img src="./output_images/straight_lines1_result.jpg" width="50%" height="50%">
 
