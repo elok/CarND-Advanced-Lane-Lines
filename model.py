@@ -69,7 +69,7 @@ class Calc_Lane_Results():
         self.center_offset_meters = None
         self.lane_width = None
 
-class Blah():
+class MasterLaneLine():
     def __init__(self):
         self.stats_df = pd.DataFrame()
         self.num_frame = 0
@@ -163,7 +163,7 @@ class Blah():
     def find_lane(self, r, g, b):
         """
         Given the RGB channels of the binary warped image, find the lane lines using various methods. This method
-        is called ONCE per lane line. calc_line() is called multiple times to find the most optimal line.
+        is called ONCE per image. calc_line() is called multiple times to find the most optimal line.
         :param r: binary warped red
         :param g: binary warped green
         :param b: binary warped blue
@@ -666,7 +666,7 @@ def run_on_test_images():
         # Read image using opencv
         img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
 
-        blah = Blah()
+        blah = MasterLaneLine()
         result = blah.draw_lane_lines(img_data)
 
         # Plot the result
@@ -685,9 +685,9 @@ def run_on_test_images():
 def run_on_video():
     calibrate_camera_and_pers_transform()
 
-    blah = Blah()
+    laneline = MasterLaneLine()
 
-    white_output = 'project_video_output.mp4'
+    white_output = 'challenge_video_output.mp4'
     ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
     ## To do so add .subclip(start_second,end_second) to the end of the line below
     ## Where start_second and end_second are integer values representing the start and end of the subclip
@@ -695,13 +695,14 @@ def run_on_video():
     # clip1 = VideoFileClip("project_video.mp4").subclip(0, 25)
     # clip1 = VideoFileClip("project_video.mp4").subclip(21, 23)
     clip1 = VideoFileClip("project_video.mp4")
+    # clip1 = VideoFileClip("challenge_video.mp4")
 
-    white_clip = clip1.fl_image(blah.process_image)  # NOTE: this function expects color images!!
+    white_clip = clip1.fl_image(laneline.process_image)  # NOTE: this function expects color images!!
     white_clip.write_videofile(white_output, audio=False)
 
-    print(blah.stats_df.to_string())
-    blah.stats_df.to_csv(r'test.csv')
+    print(laneline.stats_df.to_string())
+    laneline.stats_df.to_csv(r'challenge_video.csv')
 
 if __name__ == '__main__':
-    run_on_test_images()
-    # run_on_video()
+    # run_on_test_images()
+    run_on_video()
