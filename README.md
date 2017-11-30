@@ -13,14 +13,6 @@ The goals / steps of this project are the following:
 
 [//]: # (Image References)
 
-[image1]: ./output_images/calibration2_undistort.jpg "calibration2_undistort"
-[image2]: ./camera_cal/calibration2.jpg "calibration2_undistort"
-[image3]: ./test_images/straight_lines1.jpg "straight_lines1"
-[image4]: ./output_images/straight_lines1_binary.jpg "straight_lines1_binary"
-[image5]: ./output_images/straight_lines1_binary_warped.jpg "straight_lines1_binary_warped"
-[image6]: ./output_images/straight_lines1_binary_warped_lane_line_plotted.png "straight_lines1_binary_warped_lane_line_plotted"
-[image7]: ./output_images/straight_lines1_result.jpg "straight_lines1_result"
-
 ## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
 
 ### Here I will consider the rubric points individually and describe how I addressed each point in my implementation.
@@ -43,22 +35,22 @@ I start by preparing "object points", which will be the (x, y, z) coordinates of
 
 I then used the output `objpoints` and `imgpoints` to compute the camera calibration and distortion coefficients using the `cv2.calibrateCamera()` function.  I applied this distortion correction to the test image using the `cv2.undistort()` function and obtained this result:
 
-![alt text][image1]
-
-![alt text][image2]
+<img src="./output_images/calibration2_undistort.jpg" width="50%" height="50%">
+<img src="./camera_cal/calibration2.jpg" width="50%" height="50%">
 
 ### Pipeline (single images)
 
 #### 1. Provide an example of a distortion-corrected image.
 
 To demonstrate this step, I will describe how I apply the distortion correction to one of the test images like this one:
-![alt text][image3]
+
+<img src="./test_images/straight_lines1.jpg" width="50%" height="50%">
 
 #### 2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
 
 I used a combination of color and gradient thresholds to generate a binary image (thresholding steps at lines # through # in `another_file.py`).  Here's an example of my output for this step.  (note: this is not actually from one of the test images)
 
-![alt text][image4]
+<img src="./output_images/straight_lines1_binary.jpg" width="50%" height="50%">
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
@@ -88,13 +80,13 @@ This resulted in the following source and destination points:
 
 I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
 
-![alt text][image5]
+<img src="./output_images/straight_lines1_binary_warped.jpg" width="50%" height="50%">
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
 Then I did some other stuff and fit my lane lines with a 2nd order polynomial kinda like this:
 
-![alt text][image6]
+<img src="./output_images/straight_lines1_binary_warped_lane_line_plotted.jpg" width="50%" height="50%">
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
@@ -104,7 +96,7 @@ I did this in lines # through # in my code in `my_other_file.py`
 
 I implemented this step in lines # through # in my code in `yet_another_file.py` in the function `map_lane()`.  Here is an example of my result on a test image:
 
-![alt text][image7]
+<img src="./output_images/straight_lines1_result.jpg" width="50%" height="50%">
 
 ---
 
