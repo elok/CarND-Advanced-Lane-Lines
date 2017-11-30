@@ -45,54 +45,45 @@ After undistort<br>
 
 #### 1. Provide an example of a distortion-corrected image.
 
-To demonstrate this step, I will describe how I apply the distortion correction to one of the test images like this one:
+Below is an example application of distortion correction on a single image:
 
 Before undistort<br>
 <img src="./test_images/straight_lines1.jpg" width="50%" height="50%">
 
 After undistort<br>
-<img src="./test_images/straight_lines1_undistort.jpg" width="50%" height="50%">
+<img src="./output_images/straight_lines1_undistort.jpg" width="50%" height="50%">
 
 #### 2. Describe how (and identify where in your code) you used color transforms, gradients or other methods to create a thresholded binary image.  Provide an example of a binary image result.
 
-I used a combination of color and gradient thresholds to generate a binary image (thresholding steps at lines # through # in `another_file.py`).  Here's an example of my output for this step.  (note: this is not actually from one of the test images)
+I used a combination of color and gradient thresholds to generate a binary image in function generate_binary() in file model.py. First, I convert the image to HLS color space and separate the L channel. Next, I used sobel to take the absolute derivative in x to accentuate lines away from horizontal. I then threshold the x gradient and color channel. 
+
+Here's an example of my output for this step.
 
 <img src="./output_images/straight_lines1_binary.jpg" width="50%" height="50%">
 
 #### 3. Describe how (and identify where in your code) you performed a perspective transform and provide an example of a transformed image.
 
-The code for my perspective transform includes a function called `warper()`, which appears in lines 1 through 8 in the file `example.py` (output_images/examples/example.py) (or, for example, in the 3rd code cell of the IPython notebook).  The `warper()` function takes as inputs an image (`img`), as well as source (`src`) and destination (`dst`) points.  I chose the hardcode the source and destination points in the following manner:
-
-```python
-src = np.float32(
-    [[(img_size[0] / 2) - 55, img_size[1] / 2 + 100],
-    [((img_size[0] / 6) - 10), img_size[1]],
-    [(img_size[0] * 5 / 6) + 60, img_size[1]],
-    [(img_size[0] / 2 + 55), img_size[1] / 2 + 100]])
-dst = np.float32(
-    [[(img_size[0] / 4), 0],
-    [(img_size[0] / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), img_size[1]],
-    [(img_size[0] * 3 / 4), 0]])
-```
+The code for my perspective transform is located in function perspective_transform() in file `model.py`. The `perspective_transform()` function uses manually selected source and destination coordinate points and uses cv2.getPerspectiveTransform() to return both the perspective transform matrix and inverse perspective transform matrix.
 
 This resulted in the following source and destination points:
 
 | Source        | Destination   |
 |:-------------:|:-------------:|
-| 585, 460      | 320, 0        |
-| 203, 720      | 320, 720      |
-| 1127, 720     | 960, 720      |
-| 695, 460      | 960, 0        |
+| 200, 720      | 350, 720      |
+| 570, 470      | 350, 0        |
+| 720, 7470     | 980, 0        |
+| 1130, 720     | 980, 720      |
 
 I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
 
-<img src="./output_images/straight_lines1_binary_warped.jpg" width="50%" height="50%">
-
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
-Then I did some other stuff and fit my lane lines with a 2nd order polynomial kinda like this:
+I have a master function called find_lane() in file model.py and given the RGB channels of the binary warped image, it finds the lane lines using various methods. This method is called ONCE per image. calc_line() is another helper function and is called multiple times to find the most optimal line. Given a binary warped image and the polynomial coefficients for the left and right lane, calc_line() will calculate the polynomial fits and then check if it makes sense. If it doesn't make sense, then this method will be called again with other parameters.
 
+Binary warped image:
+<img src="./output_images/straight_lines1_binary_warped.jpg" width="50%" height="50%">
+
+Binary warped image with plotted line:
 <img src="./output_images/straight_lines1_binary_warped_lane_line_plotted.jpg" width="50%" height="50%">
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
