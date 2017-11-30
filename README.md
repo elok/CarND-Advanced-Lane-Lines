@@ -80,10 +80,10 @@ I verified that my perspective transform was working as expected by drawing the 
 
 I have a master function called find_lane() in file model.py and given the RGB channels of the binary warped image, it finds the lane lines using various methods. This method is called ONCE per image. calc_line() is another helper function and is called multiple times to find the most optimal line. Given a binary warped image and the polynomial coefficients for the left and right lane, calc_line() will calculate the polynomial fits and then check if it makes sense. If it doesn't make sense, then this method will be called again with other parameters.
 
-Binary warped image:
+Binary warped image:<br>
 <img src="./output_images/straight_lines1_binary_warped.jpg" width="50%" height="50%">
 
-Binary warped image with plotted line:
+Binary warped image with plotted line:<br>
 <img src="./output_images/straight_lines1_binary_warped_lane_line_plotted.png" width="50%" height="50%">
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
@@ -112,4 +112,11 @@ Here's a [link to my video result](./project_video_output.mp4)
 
 #### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
-Here I'll talk about the approach I took, what techniques I used, what worked and why, where the pipeline might fail and how I might improve it if I were going to pursue this project further.
+I thought this project was very challenging and also very rewarding. It helped to appreciate what a hard problem computer vision is. There were two main issues that I ran into. 
+
+1. Organization - there were too many data to keep track of, to validate, and return. In addition to the Line() class, I added two more classes -- Calc_Lane_Results() and LaneLine(). Calc_Lane_Results was used to return calculated data back to the calling function and LaneLine() and MasterLaneLine() was used to keep track of everything across all frames of the video. Organizing the data helped me tremendously. 
+
+2. Invalid Lane Lines - I think the main cause of invalid lane lines were shadows. At least that was what I observed using the video in the assignment. I had to be creative in how I checked for valid lane lines. One thing that helped was creating a pandas dataframe of stats that store most values such as lane width and curvature across all frames. I would then look for bad lane lines in the output video and compare it with the data that I output. This helped me come up with thresholds that would identify bad lane lines. 
+
+The following is a sample output of the dataframe of stats:<br>
+<img src="./output_images/sample_stats_results.jpg" width="75%" height="75%">
