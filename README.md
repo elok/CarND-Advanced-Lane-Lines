@@ -119,4 +119,4 @@ I thought this project was very challenging and also very rewarding. It helped t
 2. Invalid Lane Lines - I think the main cause of invalid lane lines were shadows. At least that was what I observed using the video in the assignment. I had to be creative in how I checked for valid lane lines. One thing that helped was creating a pandas dataframe of stats that store most values such as lane width and curvature across all frames. I would then look for bad lane lines in the output video and compare it with the data that I output. This helped me come up with thresholds that would identify bad lane lines. 
 
 The following is a sample output of the dataframe of stats:<br>
-<img src="./output_images/sample_stats_results.jpg" width="75%" height="75%">
+<img src="./output_images/sample_stats_results.jpg" width="100%" height="100%">
