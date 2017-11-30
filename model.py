@@ -141,23 +141,22 @@ class Blah():
 
         self.num_frame += 1
 
+        # -----------------------------------------------------
         # Overlay
-        # small = cv2.resize(g, (0, 0), fx=0.3, fy=0.3)
-        # new_result = cv2.addWeighted(small, 0.7, result, 0.3, 0)
-
-        visualize_lane_lines(g, self.line_left_data.current_fit, self.line_right_data.current_fit)
-        binary_warped_with_lines = cv2.imread('temp.png')
-
-        binary_warped_thumbnail = cv2.resize(binary_warped, (0, 0), fx=0.3, fy=0.3)
-        binary_warped_with_lines_thumbnail = cv2.resize(binary_warped_with_lines, (0, 0), fx=0.3, fy=0.3)
-
-        x_offset = 800
-        y_offset = 25
-        result[y_offset:y_offset + binary_warped_thumbnail.shape[0], x_offset:x_offset + binary_warped_thumbnail.shape[1]] = binary_warped_thumbnail
-        y_offset = 200
-        result[y_offset:y_offset + binary_warped_with_lines_thumbnail.shape[0], x_offset:x_offset + binary_warped_with_lines_thumbnail.shape[1]] = binary_warped_with_lines_thumbnail
-        plt.imshow(result)
-        plt.show()
+        # -----------------------------------------------------
+        # visualize_lane_lines(g, self.line_left_data.current_fit, self.line_right_data.current_fit)
+        # binary_warped_with_lines = cv2.imread('temp.png')
+        #
+        # binary_warped_thumbnail = cv2.resize(binary_warped, (0, 0), fx=0.3, fy=0.3)
+        # binary_warped_with_lines_thumbnail = cv2.resize(binary_warped_with_lines, (0, 0), fx=0.3, fy=0.3)
+        #
+        # x_offset = 800
+        # y_offset = 25
+        # result[y_offset:y_offset + binary_warped_thumbnail.shape[0], x_offset:x_offset + binary_warped_thumbnail.shape[1]] = binary_warped_thumbnail
+        # y_offset = 200
+        # result[y_offset:y_offset + binary_warped_with_lines_thumbnail.shape[0], x_offset:x_offset + binary_warped_with_lines_thumbnail.shape[1]] = binary_warped_with_lines_thumbnail
+        # plt.imshow(result)
+        # plt.show()
 
         return result
 
@@ -545,33 +544,6 @@ def generate_binary(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
 def perspective_transform():
 
     # Four source coordinates
-    # src = np.float32(
-    #     [[760, 500],  # top right
-    #     [1000, 650],  # bottom right
-    #     [305, 650],  # bottom left
-    #     [530, 500]]  # top left
-    # )
-    #
-    # # Four desired coordinates
-    # dst = np.float32(
-    #     [[990, 500],
-    #      [1000, 650],
-    #      [305, 650],
-    #      [330, 500]]
-    # )
-
-    # w, h = 1280, 720
-    # x, y = 0.5 * w, 0.8 * h
-    # src = np.float32([[200. / 1280 * w, 720. / 720 * h],
-    #                   [453. / 1280 * w, 547. / 720 * h],
-    #                   [835. / 1280 * w, 547. / 720 * h],
-    #                   [1100. / 1280 * w, 720. / 720 * h]])
-    #
-    # dst = np.float32([[(w - x) / 2., h],
-    #                   [(w - x) / 2., 0.82 * h],
-    #                   [(w + x) / 2., 0.82 * h],
-    #                   [(w + x) / 2., h]])
-
     src = np.float32([[(200, 720), (570, 470), (720, 470), (1130, 720)]])
     dst = np.float32([[(350, 720), (350, 0), (980, 0), (980, 720)]])
 
@@ -705,10 +677,10 @@ def run_on_test_images():
         ax2.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
         ax2.set_title('Pipeline Result', fontsize=12)
         plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-        plt.show()
+        # plt.show()
 
         # Save image
-        # cv2.imwrite(os.path.join(r'output_images/', image_file_name), result)  # BGR
+        cv2.imwrite(os.path.join(r'output_images/', image_file_name), result)  # BGR
 
 def run_on_video():
     calibrate_camera_and_pers_transform()
