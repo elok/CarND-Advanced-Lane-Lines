@@ -92,7 +92,7 @@ class MasterLaneLine():
         # Using the camera matrix and distortion coeff, undistort the image
         undist = cv2.undistort(src=img_data, cameraMatrix=mtx, distCoeffs=dist, newCameraMatrix=None, dst=mtx)
 
-        binary = generate_binary(undist)
+        binary = generate_binary_hls(undist)
 
         # Warp an image using the perspective transform, M:
         binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
@@ -101,7 +101,7 @@ class MasterLaneLine():
         r, g, b = cv2.split(binary_warped)
 
         # Find lane lines
-        left_fitx, right_fitx, ploty, avg_curverad, current_stats_df = self.find_lane(r, g, b)
+        left_fitx, right_fitx, ploty, avg_curverad, current_stats_df = self.find_lane(undist, r, g, b)
 
         # -----------------------------------------------------------------
         # OVERLAY
@@ -160,7 +160,7 @@ class MasterLaneLine():
 
         return result
 
-    def find_lane(self, r, g, b):
+    def find_lane(self, undist, r, g, b):
         """
         Given the RGB channels of the binary warped image, find the lane lines using various methods. This method
         is called ONCE per image. calc_line() is called multiple times to find the most optimal line.
@@ -196,21 +196,49 @@ class MasterLaneLine():
                 method = 'histogram retry b'
                 lane_results = self.calc_lane(b, left_fit, right_fit)
 
-                # use last average. check if line detected in last frame -- cant use average if no lines.
-                if lane_results.problem and self.line_left_data.detected:
-                    method = 'use last average'
-                    logger.debug('Using method: {0}'.format(method))
-                    self.line_left_data.detected = False
-                    self.line_right_data.detected = False
+                # Try Lab
+                if lane_results.problem:
+                    binary = generate_binary_lab(undist)
 
-                    avg_curverad = (self.line_left_data.radius_of_curvature + self.line_right_data.radius_of_curvature) / 2
+                    # Warp an image using the perspective transform, M:
+                    binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
 
-                    lane_results.left_fitx = self.line_left_data.bestx
-                    lane_results.right_fitx = self.line_right_data.bestx
-                    lane_results.avg_curverad = avg_curverad
+                    # Split the binary warped image to its RGB channels
+                    r, g, b = cv2.split(binary_warped)
 
-                    left_fit = self.line_left_data.current_fit
-                    right_fit = self.line_right_data.current_fit
+                    left_fit, right_fit = find_lane_histogram(g)
+                    method = 'COLOR_RGB2Lab'
+                    lane_results = self.calc_lane(g, left_fit, right_fit)
+
+                    # Try LUV
+                    if lane_results.problem:
+                        binary = generate_binary_luv(undist)
+
+                        # Warp an image using the perspective transform, M:
+                        binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
+
+                        # Split the binary warped image to its RGB channels
+                        r, g, b = cv2.split(binary_warped)
+
+                        left_fit, right_fit = find_lane_histogram(g)
+                        method = 'COLOR_RGB2Lab'
+                        lane_results = self.calc_lane(g, left_fit, right_fit)
+
+                        # use last average. check if line detected in last frame -- cant use average if no lines.
+                        if lane_results.problem and self.line_left_data.detected:
+                            method = 'use last average'
+                            logger.debug('Using method: {0}'.format(method))
+                            self.line_left_data.detected = False
+                            self.line_right_data.detected = False
+
+                            avg_curverad = (self.line_left_data.radius_of_curvature + self.line_right_data.radius_of_curvature) / 2
+
+                            lane_results.left_fitx = self.line_left_data.bestx
+                            lane_results.right_fitx = self.line_right_data.bestx
+                            lane_results.avg_curverad = avg_curverad
+
+                            left_fit = self.line_left_data.current_fit
+                            right_fit = self.line_right_data.current_fit
 
         # -----------------------------------------------------------------
         # Save curve/line/lane data
@@ -288,13 +316,18 @@ class MasterLaneLine():
             y_eval = np.max(ploty)
 
             # Define conversions in x and y from pixels space to meters
-            ym_per_pix = 30 / 720  # meters per pixel in y dimension
-            xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+            number_of_meters_visible_in_front_of_the_car = 15
+            number_of_pixels_wide_of_lane_in_birds_eye_view = 600
+
+            ym_per_pix = number_of_meters_visible_in_front_of_the_car / 720  # meters per pixel in y dimension
+            xm_per_pix = 3.7 / number_of_pixels_wide_of_lane_in_birds_eye_view  # meters per pixel in x dimension
 
             # Fit new polynomials to x,y in world space
             left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
             right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
             # Calculate the new radii of curvature ..and our radius of curvature is in meters
+            # For your reference, if the radius of curvature is calculated correctly we should see numbers in the
+            # hundreds of meters when the road is curving and in the thousands or higher for the straight parts.
             left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / \
                             np.absolute(2 * left_fit_cr[0])
             right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / \
@@ -302,12 +335,12 @@ class MasterLaneLine():
             avg_curverad = (left_curverad + right_curverad) / 2
 
             # Calc max lane width
-            max_lane_width = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
+            # max_lane_width = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
 
             # Calc Center Offset
             camera_position = 1280 / 2
             lane_center = (right_fitx[719] + left_fitx[719]) / 2
-            center_offset_pixels = abs(camera_position - lane_center)
+            center_offset_pixels = camera_position - lane_center
             center_offset_meters = center_offset_pixels * xm_per_pix
 
             # Calc lane width
@@ -329,19 +362,19 @@ class MasterLaneLine():
             issue = 'histogram could not find lane'
             logger.debug(issue)
             problem = True
-        elif (max_lane_width > 4.0) or (max_lane_width < 2.5):
-            issue = 'BAD max_lane_width error: {0}'.format(max_lane_width)
-            logger.debug(issue)
-            problem = True
-        elif avg_curverad < 400.0:
-            issue = 'BAD avg curve: {0}'.format(avg_curverad)
-            logger.debug(issue)
-            problem = True
-        elif center_offset_meters > 0.41:
+        # elif (max_lane_width > 4.0) or (max_lane_width < 2.5):
+        #     issue = 'BAD max_lane_width error: {0}'.format(max_lane_width)
+        #     logger.debug(issue)
+        #     problem = True
+        # elif avg_curverad < 400.0:
+        #     issue = 'BAD avg curve: {0}'.format(avg_curverad)
+        #     logger.debug(issue)
+        #     problem = True
+        elif (abs(center_offset_meters) < 0.01) or (abs(center_offset_meters) > 0.3):
             issue = 'BAD center_offset_meters: {0}'.format(center_offset_meters)
             logger.debug(issue)
             problem = True
-        elif lane_width > 3.5:
+        elif (lane_width > 4.4) or (lane_width < 2.0):
             issue = 'BAD lane_width: {0}'.format(lane_width)
             logger.debug(issue)
             problem = True
@@ -470,7 +503,8 @@ def visualize_lane_lines(binary_warped, left_fit, right_fit):
     ax.imshow(result)
     ax.plot(left_fitx, ploty, color='yellow')
     ax.plot(right_fitx, ploty, color='yellow')
-    fig.savefig('temp.png')
+    # fig.savefig('temp.png')
+    plt.show()
 
 def calibrate_camera(path):
     """
@@ -509,7 +543,7 @@ def calibrate_camera(path):
     return mtx, dist
 
 
-def generate_binary(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
+def generate_binary_hls(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     """
     Find lane line by using HLS color space and sobel gradients
     :param img:
@@ -534,6 +568,70 @@ def generate_binary(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     # Threshold color channel
     s_binary = np.zeros_like(s_channel)
     s_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
+    # Stack each channel
+    # Note color_binary[:, :, 0] is all 0s, effectively an all black image. It might
+    # be beneficial to replace this channel with something else.
+    color_binary = np.uint8(np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255)
+
+    return color_binary
+
+def generate_binary_lab(img, s_thresh=(155, 200), sx_thresh=(20, 100)):
+    """
+    Find lane line by using HLS color space and sobel gradients
+    :param img:
+    :param s_thresh:
+    :param sx_thresh:
+    :return: binary image
+    """
+    img = np.copy(img)
+    # Convert to HLS color space and separate the V channel
+    lab = cv2.cvtColor(img, cv2.COLOR_RGB2Lab).astype(np.float)
+    b_channel = lab[:, :, 2]
+
+    # Sobel x
+    sobelx = cv2.Sobel(b_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
+    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
+
+    # Threshold x gradient
+    sxbinary = np.zeros_like(scaled_sobel)
+    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+
+    # Threshold color channel
+    s_binary = np.zeros_like(b_channel)
+    s_binary[(b_channel >= s_thresh[0]) & (b_channel <= s_thresh[1])] = 1
+    # Stack each channel
+    # Note color_binary[:, :, 0] is all 0s, effectively an all black image. It might
+    # be beneficial to replace this channel with something else.
+    color_binary = np.uint8(np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255)
+
+    return color_binary
+
+def generate_binary_luv(img, s_thresh=(225, 255), sx_thresh=(20, 100)):
+    """
+    Find lane line by using HLS color space and sobel gradients
+    :param img:
+    :param s_thresh:
+    :param sx_thresh:
+    :return: binary image
+    """
+    img = np.copy(img)
+    # Convert to HLS color space and separate the V channel
+    lab = cv2.cvtColor(img, cv2.COLOR_RGB2LUV).astype(np.float)
+    l_channel = lab[:, :, 2]
+
+    # Sobel x
+    sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
+    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
+
+    # Threshold x gradient
+    sxbinary = np.zeros_like(scaled_sobel)
+    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+
+    # Threshold color channel
+    s_binary = np.zeros_like(l_channel)
+    s_binary[(l_channel >= s_thresh[0]) & (l_channel <= s_thresh[1])] = 1
     # Stack each channel
     # Note color_binary[:, :, 0] is all 0s, effectively an all black image. It might
     # be beneficial to replace this channel with something else.
@@ -663,6 +761,10 @@ def run_on_test_images():
     path = r'test_images/'
 
     for image_file_name in os.listdir(path):
+
+        # TEST
+        # image_file_name = 'test5.jpg'
+
         # Read image using opencv
         img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
 
@@ -687,21 +789,23 @@ def run_on_video():
 
     laneline = MasterLaneLine()
 
-    white_output = 'challenge_video_output.mp4'
     ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
     ## To do so add .subclip(start_second,end_second) to the end of the line below
     ## Where start_second and end_second are integer values representing the start and end of the subclip
     ## You may also uncomment the following line for a subclip of the first 5 seconds
-    # clip1 = VideoFileClip("project_video.mp4").subclip(0, 25)
-    # clip1 = VideoFileClip("project_video.mp4").subclip(21, 23)
-    clip1 = VideoFileClip("project_video.mp4")
-    # clip1 = VideoFileClip("challenge_video.mp4")
+
+    video_filename = 'project_video'
+    white_output = video_filename + '_output.mp4'
+
+    # clip1 = VideoFileClip(video_filename + '.mp4').subclip(0, 25)
+    clip1 = VideoFileClip(video_filename + '.mp4').subclip(20, 23)
+    # clip1 = VideoFileClip(video_filename + '.mp4')
 
     white_clip = clip1.fl_image(laneline.process_image)  # NOTE: this function expects color images!!
     white_clip.write_videofile(white_output, audio=False)
 
     print(laneline.stats_df.to_string())
-    laneline.stats_df.to_csv(r'challenge_video.csv')
+    laneline.stats_df.to_csv(video_filename + '_stats.csv')
 
 if __name__ == '__main__':
     # run_on_test_images()
