@@ -67,7 +67,9 @@ class Calc_Lane_Results():
         self.right_curverad = None
         self.avg_curverad = None
         self.center_offset_meters = None
-        self.lane_width = None
+        self.lane_width_bottom = None
+        self.lane_width_top = None
+        self.curve_diff = None
 
 class MasterLaneLine():
     def __init__(self):
@@ -144,15 +146,18 @@ class MasterLaneLine():
         # -----------------------------------------------------
         # Overlay
         # -----------------------------------------------------
-        # visualize_lane_lines(g, self.line_left_data.current_fit, self.line_right_data.current_fit)
+        img_d = visualize_lane_lines(g, self.line_left_data.current_fit, self.line_right_data.current_fit)
+        # plt.imshow(img_d)
+        # plt.show()
+
         # binary_warped_with_lines = cv2.imread('temp.png')
-        #
-        # binary_warped_thumbnail = cv2.resize(binary_warped, (0, 0), fx=0.3, fy=0.3)
+
+        binary_warped_thumbnail = cv2.resize(img_d, (0, 0), fx=0.3, fy=0.3)
         # binary_warped_with_lines_thumbnail = cv2.resize(binary_warped_with_lines, (0, 0), fx=0.3, fy=0.3)
         #
-        # x_offset = 800
-        # y_offset = 25
-        # result[y_offset:y_offset + binary_warped_thumbnail.shape[0], x_offset:x_offset + binary_warped_thumbnail.shape[1]] = binary_warped_thumbnail
+        x_offset = 896 # 900
+        y_offset = 25
+        result[y_offset:y_offset + binary_warped_thumbnail.shape[0], x_offset:x_offset + binary_warped_thumbnail.shape[1]] = binary_warped_thumbnail
         # y_offset = 200
         # result[y_offset:y_offset + binary_warped_with_lines_thumbnail.shape[0], x_offset:x_offset + binary_warped_with_lines_thumbnail.shape[1]] = binary_warped_with_lines_thumbnail
         # plt.imshow(result)
@@ -221,7 +226,7 @@ class MasterLaneLine():
                         r, g, b = cv2.split(binary_warped)
 
                         left_fit, right_fit = find_lane_histogram(g)
-                        method = 'COLOR_RGB2Lab'
+                        method = 'COLOR_RGB2LUV'
                         lane_results = self.calc_lane(g, left_fit, right_fit)
 
                         # use last average. check if line detected in last frame -- cant use average if no lines.
@@ -277,7 +282,8 @@ class MasterLaneLine():
                                               'avg_curverad': lane_results.avg_curverad,
                                               'method': method,
                                               'center_offset_meters': lane_results.center_offset_meters,
-                                              'lane_width': lane_results.lane_width,
+                                              'lane_width_bottom': lane_results.lane_width_bottom,
+                                              'lane_width_top': lane_results.lane_width_top,
                                               'issue': lane_results.issue},
                                         index=[0])
         else:
@@ -317,7 +323,7 @@ class MasterLaneLine():
 
             # Define conversions in x and y from pixels space to meters
             number_of_meters_visible_in_front_of_the_car = 15
-            number_of_pixels_wide_of_lane_in_birds_eye_view = 600
+            number_of_pixels_wide_of_lane_in_birds_eye_view = 620
 
             ym_per_pix = number_of_meters_visible_in_front_of_the_car / 720  # meters per pixel in y dimension
             xm_per_pix = 3.7 / number_of_pixels_wide_of_lane_in_birds_eye_view  # meters per pixel in x dimension
@@ -334,9 +340,6 @@ class MasterLaneLine():
                              np.absolute(2 * right_fit_cr[0])
             avg_curverad = (left_curverad + right_curverad) / 2
 
-            # Calc max lane width
-            # max_lane_width = max(abs(abs(left_fitx) - abs(right_fitx))) / 195.0
-
             # Calc Center Offset
             camera_position = 1280 / 2
             lane_center = (right_fitx[719] + left_fitx[719]) / 2
@@ -344,7 +347,11 @@ class MasterLaneLine():
             center_offset_meters = center_offset_pixels * xm_per_pix
 
             # Calc lane width
-            lane_width = abs(right_fitx[719] - left_fitx[719]) * xm_per_pix
+            lane_width_top = abs(right_fitx[0] - left_fitx[0]) * xm_per_pix
+            lane_width_bottom = abs(right_fitx[719] - left_fitx[719]) * xm_per_pix
+
+            # Calc curve diff
+            curve_diff = abs(right_curverad - left_curverad)
         else:
             # left_fit and right_fit is blank
             problem = True
@@ -353,7 +360,7 @@ class MasterLaneLine():
             left_curverad = self.line_left_data.radius_of_curvature
             right_curverad = self.line_right_data.radius_of_curvature
             avg_curverad = (left_curverad + right_curverad) / 2
-            center_offset_meters, lane_width = 0, 0
+            center_offset_meters, lane_width_bottom, lane_width_top, curve_diff = 0, 0, 0, 0
 
         # --------------------------------------------------------------
         # Validation
@@ -362,20 +369,24 @@ class MasterLaneLine():
             issue = 'histogram could not find lane'
             logger.debug(issue)
             problem = True
-        # elif (max_lane_width > 4.0) or (max_lane_width < 2.5):
-        #     issue = 'BAD max_lane_width error: {0}'.format(max_lane_width)
-        #     logger.debug(issue)
-        #     problem = True
-        # elif avg_curverad < 400.0:
-        #     issue = 'BAD avg curve: {0}'.format(avg_curverad)
-        #     logger.debug(issue)
-        #     problem = True
-        elif (abs(center_offset_meters) < 0.01) or (abs(center_offset_meters) > 0.3):
+        elif curve_diff > 1000.0:
+            issue = 'BAD curve_diff: {0}'.format(curve_diff)
+            logger.debug(issue)
+            problem = True
+        elif avg_curverad < 140.0:
+            issue = 'BAD avg curve: {0}'.format(avg_curverad)
+            logger.debug(issue)
+            problem = True
+        elif (abs(center_offset_meters) < 0.1) or (abs(center_offset_meters) > 0.9):
             issue = 'BAD center_offset_meters: {0}'.format(center_offset_meters)
             logger.debug(issue)
             problem = True
-        elif (lane_width > 4.4) or (lane_width < 2.0):
-            issue = 'BAD lane_width: {0}'.format(lane_width)
+        elif (lane_width_bottom > 4.4) or (lane_width_bottom < 3.2):
+            issue = 'BAD lane_width_bottom: {0}'.format(lane_width_bottom)
+            logger.debug(issue)
+            problem = True
+        elif (lane_width_top > 4.4) or (lane_width_top < 2.0):
+            issue = 'BAD lane_width_top: {0}'.format(lane_width_top)
             logger.debug(issue)
             problem = True
 
@@ -390,7 +401,9 @@ class MasterLaneLine():
         lane_results.right_curverad = right_curverad
         lane_results.avg_curverad = avg_curverad
         lane_results.center_offset_meters = center_offset_meters
-        lane_results.lane_width = lane_width
+        lane_results.lane_width_bottom = lane_width_bottom
+        lane_results.lane_width_top = lane_width_top
+        lane_results.curve_diff = curve_diff
         return lane_results
 
     def find_lane_using_previous(self, binary_warped):
@@ -479,32 +492,33 @@ def visualize_lane_lines(binary_warped, left_fit, right_fit):
     # Generate a polygon to illustrate the search window area
     # And recast the x and y points into usable format for cv2.fillPoly()
     left_line_window1 = np.array([np.transpose(np.vstack([left_fitx - margin, ploty]))])
-    left_line_window2 = np.array([np.flipud(np.transpose(np.vstack([left_fitx + margin,
-                                                                    ploty])))])
+    left_line_window2 = np.array([np.flipud(np.transpose(np.vstack([left_fitx + margin, ploty])))])
     left_line_pts = np.hstack((left_line_window1, left_line_window2))
     right_line_window1 = np.array([np.transpose(np.vstack([right_fitx - margin, ploty]))])
-    right_line_window2 = np.array([np.flipud(np.transpose(np.vstack([right_fitx + margin,
-                                                                     ploty])))])
+    right_line_window2 = np.array([np.flipud(np.transpose(np.vstack([right_fitx + margin, ploty])))])
     right_line_pts = np.hstack((right_line_window1, right_line_window2))
 
     # Draw the lane onto the warped blank image
     cv2.fillPoly(window_img, np.int_([left_line_pts]), (0, 255, 0))
     cv2.fillPoly(window_img, np.int_([right_line_pts]), (0, 255, 0))
     result = cv2.addWeighted(out_img, 1, window_img, 0.3, 0)
-    # plt.imshow(result)
-    # plt.plot(left_fitx, ploty, color='yellow')
-    # plt.plot(right_fitx, ploty, color='yellow')
-    # plt.xlim(0, 1280)
-    # plt.ylim(720, 0)
-    fig = plt.figure(frameon=False)
-    ax = plt.Axes(fig, [0., 0., 1., 1.])
-    ax.set_axis_off()
-    fig.add_axes(ax)
-    ax.imshow(result)
-    ax.plot(left_fitx, ploty, color='yellow')
-    ax.plot(right_fitx, ploty, color='yellow')
-    # fig.savefig('temp.png')
-    plt.show()
+
+    # Plot
+    # fig = plt.figure(frameon=False)
+    # ax = plt.Axes(fig, [0., 0., 1., 1.])
+    # ax.set_axis_off()
+    # fig.add_axes(ax)
+    # ax.imshow(result)
+    # ax.plot(left_fitx, ploty, color='yellow')
+    # ax.plot(right_fitx, ploty, color='yellow')
+    # # fig.savefig('temp.png')
+    #
+    # # If we haven't already shown or saved the plot, then we need to draw the figure first...
+    # fig.canvas.draw()
+    # # Now we can save it to a numpy array.
+    # data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    # data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    return result
 
 def calibrate_camera(path):
     """
@@ -763,7 +777,7 @@ def run_on_test_images():
     for image_file_name in os.listdir(path):
 
         # TEST
-        # image_file_name = 'test5.jpg'
+        image_file_name = 'test1.jpg'
 
         # Read image using opencv
         img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
@@ -779,10 +793,10 @@ def run_on_test_images():
         ax2.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
         ax2.set_title('Pipeline Result', fontsize=12)
         plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-        # plt.show()
+        plt.show()
 
         # Save image
-        cv2.imwrite(os.path.join(r'output_images/', image_file_name), result)  # BGR
+        # cv2.imwrite(os.path.join(r'output_images/', image_file_name), result)  # BGR
 
 def run_on_video():
     calibrate_camera_and_pers_transform()
@@ -798,7 +812,7 @@ def run_on_video():
     white_output = video_filename + '_output.mp4'
 
     # clip1 = VideoFileClip(video_filename + '.mp4').subclip(0, 25)
-    clip1 = VideoFileClip(video_filename + '.mp4').subclip(20, 23)
+    clip1 = VideoFileClip(video_filename + '.mp4').subclip(17, 40)
     # clip1 = VideoFileClip(video_filename + '.mp4')
 
     white_clip = clip1.fl_image(laneline.process_image)  # NOTE: this function expects color images!!
