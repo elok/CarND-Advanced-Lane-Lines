@@ -101,16 +101,16 @@ class MasterLaneLine():
         binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
 
         # Split the binary warped image to its RGB channels
-        r, g, b = cv2.split(binary_warped)
+        # r, g, b = cv2.split(binary_warped)
 
         # Find lane lines
-        left_fitx, right_fitx, ploty, avg_curverad, current_stats_df, binary_picked, method = self.find_lane(undist, r, g, b)
+        left_fitx, right_fitx, ploty, avg_curverad, current_stats_df, binary_picked, method = self.find_lane(binary_warped)
 
         # -----------------------------------------------------------------
         # OVERLAY
         # -----------------------------------------------------------------
         # Create an image to draw the lines on
-        warp_zero = np.zeros_like(b).astype(np.uint8)
+        warp_zero = np.zeros_like(binary_warped).astype(np.uint8)
         color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
         # Recast the x and y points into usable format for cv2.fillPoly()
@@ -142,6 +142,9 @@ class MasterLaneLine():
             cv2.putText(img=result,
                         text='Method: {0}'.format(method),
                         org=(10, 140), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+            cv2.putText(img=result,
+                        text='Issue: {0}'.format(current_stats_df['issue'][0]),
+                        org=(10, 170), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
         except:
             pass
 
@@ -151,25 +154,17 @@ class MasterLaneLine():
         # Overlay
         # -----------------------------------------------------
         img_d = visualize_lane_lines(binary_picked, self.line_left_data.current_fit, self.line_right_data.current_fit)
-        # plt.imshow(img_d)
-        # plt.show()
-
-        # binary_warped_with_lines = cv2.imread('temp.png')
 
         binary_warped_thumbnail = cv2.resize(img_d, (0, 0), fx=0.3, fy=0.3)
-        # binary_warped_with_lines_thumbnail = cv2.resize(binary_warped_with_lines, (0, 0), fx=0.3, fy=0.3)
-        #
-        x_offset = 896 # 900
+
+        x_offset = 896
         y_offset = 25
-        result[y_offset:y_offset + binary_warped_thumbnail.shape[0], x_offset:x_offset + binary_warped_thumbnail.shape[1]] = binary_warped_thumbnail
-        # y_offset = 200
-        # result[y_offset:y_offset + binary_warped_with_lines_thumbnail.shape[0], x_offset:x_offset + binary_warped_with_lines_thumbnail.shape[1]] = binary_warped_with_lines_thumbnail
-        # plt.imshow(result)
-        # plt.show()
+        result[y_offset:y_offset + binary_warped_thumbnail.shape[0], x_offset:x_offset +
+                binary_warped_thumbnail.shape[1]] = binary_warped_thumbnail
 
         return result
 
-    def find_lane(self, undist, r, g, b):
+    def find_lane(self, binary_warped):
         """
         Given the RGB channels of the binary warped image, find the lane lines using various methods. This method
         is called ONCE per image. calc_line() is called multiple times to find the most optimal line.
@@ -183,64 +178,28 @@ class MasterLaneLine():
         # Compute the Polynomial coefficients
         if not self.line_left_data.detected:
             # We did not find a lane line in the previous frame, lets search using histogram
-            left_fit, right_fit = find_lane_histogram(g)  # use green channel
-            method = 'histogram g'
-            binary_picked = g
+            left_fit, right_fit = find_lane_histogram(binary_warped)  # use green channel
+            method = 'Histogram'
+            binary_picked = binary_warped
         else:
             # Lane line detected in previous frame, start searching using previous data
-            left_fit, right_fit = self.find_lane_using_previous(g)  # use green channel
-            method = 'previous g'
-            binary_picked = g
+            left_fit, right_fit = self.find_lane_using_previous(binary_warped)  # use green channel
+            method = 'Previous histogram'
+            binary_picked = binary_warped
 
-        lane_results = self.calc_lane(g, left_fit, right_fit)
+        lane_results = self.calc_lane(binary_warped, left_fit, right_fit)
 
-        # Try histogram
+        # Retry histogram without the previous lane's window
         if lane_results.problem:
-            left_fit, right_fit = find_lane_histogram(g)
-            method = 'histogram with g'
-            binary_picked = g
-            lane_results = self.calc_lane(g, left_fit, right_fit)
-
-        # # Try blue channel
-        # if lane_results.problem:
-        #     left_fit, right_fit = find_lane_histogram(b)
-        #     method = 'histogram retry b'
-        #     lane_results = self.calc_lane(b, left_fit, right_fit)
-
-        # Try Lab
-        if lane_results.problem:
-            binary = generate_binary_lab(undist)
-
-            # Warp an image using the perspective transform, M:
-            binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
-
-            # Split the binary warped image to its RGB channels
-            r, g, b = cv2.split(binary_warped)
-
-            left_fit, right_fit = find_lane_histogram(g)
-            method = 'COLOR_RGB2Lab'
-            binary_picked = g
-            lane_results = self.calc_lane(g, left_fit, right_fit)
-
-        # Try LUV
-        if lane_results.problem:
-            binary = generate_binary_luv(undist)
-
-            # Warp an image using the perspective transform, M:
-            binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
-
-            # Split the binary warped image to its RGB channels
-            r, g, b = cv2.split(binary_warped)
-
-            left_fit, right_fit = find_lane_histogram(g)
-            method = 'COLOR_RGB2LUV'
-            binary_picked = g
-            lane_results = self.calc_lane(g, left_fit, right_fit)
+            left_fit, right_fit = find_lane_histogram(binary_warped)
+            method = 'Histogram retry'
+            binary_picked = binary_warped
+            lane_results = self.calc_lane(binary_warped, left_fit, right_fit)
 
         # Use last average. check if line detected in last frame -- cant use average if no lines.
         if lane_results.problem and self.line_left_data.detected:
-            method = 'use last average'
-            binary_picked = g
+            method = 'Use last average'
+            binary_picked = binary_warped
             logger.debug('Using method: {0}'.format(method))
             self.line_left_data.detected = False
             self.line_right_data.detected = False
@@ -390,7 +349,7 @@ class MasterLaneLine():
             issue = 'histogram could not find lane'
             logger.debug(issue)
             problem = True
-        elif curve_diff > 3000.0:
+        elif curve_diff > 10000.0:
             issue = 'BAD curve_diff: {0}'.format(curve_diff)
             logger.debug(issue)
             problem = True
@@ -398,7 +357,7 @@ class MasterLaneLine():
             issue = 'BAD avg curve: {0}'.format(avg_curverad)
             logger.debug(issue)
             problem = True
-        elif (abs(center_offset_meters) < 0.01) or (abs(center_offset_meters) > 0.28):
+        elif (center_offset_meters > -0.01) or (center_offset_meters < -0.6):
             issue = 'BAD center_offset_meters: {0}'.format(center_offset_meters)
             logger.debug(issue)
             problem = True
@@ -588,94 +547,56 @@ def generate_binary_new(img_orig):
     # -------------------------------------------
     # HLS
     s_thresh = (170, 255)
-    sx_thresh = (20, 100)
+    # sx_thresh = (20, 100)
 
     img = np.copy(img_orig)
     # Convert to HLS color space and separate the V channel
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
     l_channel = hls[:, :, 1]
     s_channel = hls[:, :, 2]
-    # Sobel x
-    sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
-    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
-    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
-
-    # Threshold x gradient
-    sxbinary = np.zeros_like(scaled_sobel)
-    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
 
     # Threshold color channel
     hls_binary = np.zeros_like(s_channel)
     hls_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
 
     # -------------------------------------------
-    # LAB
+    # LAB (for yellow lines)
     s_thresh = (155, 200)
-    sx_thresh = (20, 100)
+    # sx_thresh = (20, 100)
     img = np.copy(img_orig)
-    # Convert to HLS color space and separate the V channel
+    # Convert to Lab color space and separate the V channel
     lab = cv2.cvtColor(img, cv2.COLOR_RGB2Lab).astype(np.float)
     b_channel = lab[:, :, 2]
-
-    # Sobel x
-    sobelx = cv2.Sobel(b_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
-    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
-    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
-
-    # Threshold x gradient
-    sxbinary = np.zeros_like(scaled_sobel)
-    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
 
     # Threshold color channel
     lab_binary = np.zeros_like(b_channel)
     lab_binary[(b_channel >= s_thresh[0]) & (b_channel <= s_thresh[1])] = 1
 
     # -------------------------------------------
-    # LUV
-    # s_thresh = (0, 255)
+    # LUV (for white lines)
+    s_thresh = (225, 255)
     # sx_thresh = (20, 100)
-    # img = np.copy(img_orig)
-    # # Convert to HLS color space and separate the V channel
-    # lab = cv2.cvtColor(img, cv2.COLOR_RGB2LUV).astype(np.float)
-    # l_channel = lab[:, :, 2]
-
-    # Sobel x
-    # sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
-    # abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
-    # scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
-
-    # Threshold x gradient
-    # sxbinary = np.zeros_like(scaled_sobel)
-    # sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+    img = np.copy(img_orig)
+    # Convert to LUV color space and separate the V channel
+    luv = cv2.cvtColor(img, cv2.COLOR_RGB2LUV).astype(np.float)
+    l_channel = luv[:, :, 0]
 
     # Threshold color channel
-    # luv_binary = np.zeros_like(l_channel)
-    # luv_binary[(l_channel >= s_thresh[0]) & (l_channel <= s_thresh[1])] = 1
+    luv_binary = np.zeros_like(l_channel)
+    luv_binary[(l_channel >= s_thresh[0]) & (l_channel <= s_thresh[1])] = 1
 
     # -------------------------------------------
     # Stack each channel
     # Note color_binary[:, :, 0] is all 0s, effectively an all black image. It might
     # be beneficial to replace this channel with something else.
-    rgb_binary = np.zeros_like(lab_binary)
-    color_binary = np.uint8(np.dstack((hls_binary, lab_binary, luv_binary)) * 255)
+    combined_binary = np.zeros_like(lab_binary)
+    combined_binary[(lab_binary == 1) | (hls_binary == 1) | (luv_binary == 1)] = 1
 
-    return color_binary
-
-def generate_binary_hls(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
-    """
-    Find lane line by using HLS color space and sobel gradients
-    :param img:
-    :param s_thresh:
-    :param sx_thresh:
-    :return: binary image
-    """
-    img = np.copy(img)
-    # Convert to HLS color space and separate the V channel
-    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
-    l_channel = hls[:, :, 1]
-    s_channel = hls[:, :, 2]
+    # -------------------------------------------
     # Sobel x
-    sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    # -------------------------------------------
+    sx_thresh = (20, 100)
+    sobelx = cv2.Sobel(combined_binary, cv2.CV_64F, 1, 0)  # Take the derivative in x
     abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
     scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
 
@@ -683,79 +604,11 @@ def generate_binary_hls(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     sxbinary = np.zeros_like(scaled_sobel)
     sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
 
-    # Threshold color channel
-    s_binary = np.zeros_like(s_channel)
-    s_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
     # Stack each channel
-    # Note color_binary[:, :, 0] is all 0s, effectively an all black image. It might
-    # be beneficial to replace this channel with something else.
-    color_binary = np.uint8(np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255)
+    combined_binary[(combined_binary == 1) & (sxbinary == 1)] = 1
 
-    return color_binary
+    return combined_binary
 
-def generate_binary_lab(img, s_thresh=(155, 200), sx_thresh=(20, 100)):
-    """
-    Find lane line by using HLS color space and sobel gradients
-    :param img:
-    :param s_thresh:
-    :param sx_thresh:
-    :return: binary image
-    """
-    img = np.copy(img)
-    # Convert to HLS color space and separate the V channel
-    lab = cv2.cvtColor(img, cv2.COLOR_RGB2Lab).astype(np.float)
-    b_channel = lab[:, :, 2]
-
-    # Sobel x
-    sobelx = cv2.Sobel(b_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
-    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
-    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
-
-    # Threshold x gradient
-    sxbinary = np.zeros_like(scaled_sobel)
-    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
-
-    # Threshold color channel
-    s_binary = np.zeros_like(b_channel)
-    s_binary[(b_channel >= s_thresh[0]) & (b_channel <= s_thresh[1])] = 1
-    # Stack each channel
-    # Note color_binary[:, :, 0] is all 0s, effectively an all black image. It might
-    # be beneficial to replace this channel with something else.
-    color_binary = np.uint8(np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255)
-
-    return color_binary
-
-def generate_binary_luv(img, s_thresh=(225, 255), sx_thresh=(20, 100)):
-    """
-    Find lane line by using HLS color space and sobel gradients
-    :param img:
-    :param s_thresh:
-    :param sx_thresh:
-    :return: binary image
-    """
-    img = np.copy(img)
-    # Convert to HLS color space and separate the V channel
-    lab = cv2.cvtColor(img, cv2.COLOR_RGB2LUV).astype(np.float)
-    l_channel = lab[:, :, 2]
-
-    # Sobel x
-    sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
-    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
-    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
-
-    # Threshold x gradient
-    sxbinary = np.zeros_like(scaled_sobel)
-    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
-
-    # Threshold color channel
-    s_binary = np.zeros_like(l_channel)
-    s_binary[(l_channel >= s_thresh[0]) & (l_channel <= s_thresh[1])] = 1
-    # Stack each channel
-    # Note color_binary[:, :, 0] is all 0s, effectively an all black image. It might
-    # be beneficial to replace this channel with something else.
-    color_binary = np.uint8(np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255)
-
-    return color_binary
 
 def perspective_transform():
 
@@ -880,9 +733,6 @@ def run_on_test_images():
 
     for image_file_name in os.listdir(path):
 
-        # TEST
-        image_file_name = 'test1.jpg'
-
         # Read image using opencv
         img_data = cv2.imread(os.path.join(path, image_file_name))  # BGR
 
@@ -897,10 +747,10 @@ def run_on_test_images():
         ax2.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
         ax2.set_title('Pipeline Result', fontsize=12)
         plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
-        plt.show()
+        # plt.show()
 
         # Save image
-        # cv2.imwrite(os.path.join(r'output_images/', image_file_name), result)  # BGR
+        cv2.imwrite(os.path.join(r'output_images/', image_file_name), result)  # BGR
 
 def run_on_video():
     calibrate_camera_and_pers_transform()
@@ -917,8 +767,9 @@ def run_on_video():
 
     # clip1 = VideoFileClip(video_filename + '.mp4').subclip(0, 25)
     # clip1 = VideoFileClip(video_filename + '.mp4').subclip(25, 35) # straight
-    clip1 = VideoFileClip(video_filename + '.mp4').subclip(20, 27) # shadow
-    # clip1 = VideoFileClip(video_filename + '.mp4')
+    # clip1 = VideoFileClip(video_filename + '.mp4').subclip(20, 27) # shadow
+    # clip1 = VideoFileClip(video_filename + '.mp4').subclip(40, 45) # shadow
+    clip1 = VideoFileClip(video_filename + '.mp4')
 
     white_clip = clip1.fl_image(laneline.process_image)  # NOTE: this function expects color images!!
     white_clip.write_videofile(white_output, audio=False)
@@ -927,5 +778,5 @@ def run_on_video():
     laneline.stats_df.to_csv(video_filename + '_stats.csv')
 
 if __name__ == '__main__':
-    # run_on_test_images()
+    run_on_test_images()
     run_on_video()
