@@ -39,7 +39,7 @@ class Line():
         # x values of the last n fits of the line
         self.recent_xfitted = []
         # average x values of the fitted line over the last n iterations
-        self.bestx = None
+        self.bestx = []
         # polynomial coefficients averaged over the last n iterations
         self.best_fit = None
         # polynomial coefficients for the most recent fit
@@ -103,7 +103,7 @@ class MasterLaneLine():
         r, g, b = cv2.split(binary_warped)
 
         # Find lane lines
-        left_fitx, right_fitx, ploty, avg_curverad, current_stats_df = self.find_lane(undist, r, g, b)
+        left_fitx, right_fitx, ploty, avg_curverad, current_stats_df, binary_picked, method = self.find_lane(undist, r, g, b)
 
         # -----------------------------------------------------------------
         # OVERLAY
@@ -136,8 +136,11 @@ class MasterLaneLine():
         try:
             cv2.putText(img=result, text='Offset from center: {0:,.2f} meters'.format(current_stats_df['center_offset_meters'][0]),
                         org=(10, 80), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
-            cv2.putText(img=result, text='Lane width: {0:,.2f} meters'.format(current_stats_df['lane_width'][0]),
+            cv2.putText(img=result, text='Lane width bottom: {0:,.2f} meters'.format(current_stats_df['lane_width_bottom'][0]),
                         org=(10, 110), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+            cv2.putText(img=result,
+                        text='Method: {0}'.format(method),
+                        org=(10, 130), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
         except:
             pass
 
@@ -146,7 +149,7 @@ class MasterLaneLine():
         # -----------------------------------------------------
         # Overlay
         # -----------------------------------------------------
-        img_d = visualize_lane_lines(g, self.line_left_data.current_fit, self.line_right_data.current_fit)
+        img_d = visualize_lane_lines(binary_picked, self.line_left_data.current_fit, self.line_right_data.current_fit)
         # plt.imshow(img_d)
         # plt.show()
 
@@ -181,69 +184,74 @@ class MasterLaneLine():
             # We did not find a lane line in the previous frame, lets search using histogram
             left_fit, right_fit = find_lane_histogram(g)  # use green channel
             method = 'histogram g'
+            binary_picked = g
         else:
             # Lane line detected in previous frame, start searching using previous data
             left_fit, right_fit = self.find_lane_using_previous(g)  # use green channel
             method = 'previous g'
+            binary_picked = g
 
         lane_results = self.calc_lane(g, left_fit, right_fit)
 
-        # try histogram
-        # if lane_results.problem and self.line_left_data.detected:
+        # Try histogram
         if lane_results.problem:
             left_fit, right_fit = find_lane_histogram(g)
-            method = 'histogram retry g'
+            method = 'histogram with g'
+            binary_picked = g
             lane_results = self.calc_lane(g, left_fit, right_fit)
 
-            # try blue channel
-            if lane_results.problem:
-                left_fit, right_fit = find_lane_histogram(b)
-                method = 'histogram retry b'
-                lane_results = self.calc_lane(b, left_fit, right_fit)
+        # # Try blue channel
+        # if lane_results.problem:
+        #     left_fit, right_fit = find_lane_histogram(b)
+        #     method = 'histogram retry b'
+        #     lane_results = self.calc_lane(b, left_fit, right_fit)
 
-                # Try Lab
-                if lane_results.problem:
-                    binary = generate_binary_lab(undist)
+        # Try Lab
+        if lane_results.problem:
+            binary = generate_binary_lab(undist)
 
-                    # Warp an image using the perspective transform, M:
-                    binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
+            # Warp an image using the perspective transform, M:
+            binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
 
-                    # Split the binary warped image to its RGB channels
-                    r, g, b = cv2.split(binary_warped)
+            # Split the binary warped image to its RGB channels
+            r, g, b = cv2.split(binary_warped)
 
-                    left_fit, right_fit = find_lane_histogram(g)
-                    method = 'COLOR_RGB2Lab'
-                    lane_results = self.calc_lane(g, left_fit, right_fit)
+            left_fit, right_fit = find_lane_histogram(g)
+            method = 'COLOR_RGB2Lab'
+            binary_picked = g
+            lane_results = self.calc_lane(g, left_fit, right_fit)
 
-                    # Try LUV
-                    if lane_results.problem:
-                        binary = generate_binary_luv(undist)
+        # Try LUV
+        if lane_results.problem:
+            binary = generate_binary_luv(undist)
 
-                        # Warp an image using the perspective transform, M:
-                        binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
+            # Warp an image using the perspective transform, M:
+            binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
 
-                        # Split the binary warped image to its RGB channels
-                        r, g, b = cv2.split(binary_warped)
+            # Split the binary warped image to its RGB channels
+            r, g, b = cv2.split(binary_warped)
 
-                        left_fit, right_fit = find_lane_histogram(g)
-                        method = 'COLOR_RGB2LUV'
-                        lane_results = self.calc_lane(g, left_fit, right_fit)
+            left_fit, right_fit = find_lane_histogram(g)
+            method = 'COLOR_RGB2LUV'
+            binary_picked = g
+            lane_results = self.calc_lane(g, left_fit, right_fit)
 
-                        # use last average. check if line detected in last frame -- cant use average if no lines.
-                        if lane_results.problem and self.line_left_data.detected:
-                            method = 'use last average'
-                            logger.debug('Using method: {0}'.format(method))
-                            self.line_left_data.detected = False
-                            self.line_right_data.detected = False
+        # Use last average. check if line detected in last frame -- cant use average if no lines.
+        if lane_results.problem and self.line_left_data.detected:
+            method = 'use last average'
+            binary_picked = g
+            logger.debug('Using method: {0}'.format(method))
+            self.line_left_data.detected = False
+            self.line_right_data.detected = False
 
-                            avg_curverad = (self.line_left_data.radius_of_curvature + self.line_right_data.radius_of_curvature) / 2
+            avg_curverad = (self.line_left_data.radius_of_curvature + self.line_right_data.radius_of_curvature) / 2
 
-                            lane_results.left_fitx = self.line_left_data.bestx
-                            lane_results.right_fitx = self.line_right_data.bestx
-                            lane_results.avg_curverad = avg_curverad
+            lane_results.left_fitx = self.line_left_data.bestx
+            lane_results.right_fitx = self.line_right_data.bestx
+            lane_results.avg_curverad = avg_curverad
 
-                            left_fit = self.line_left_data.current_fit
-                            right_fit = self.line_right_data.current_fit
+            left_fit = self.line_left_data.current_fit
+            right_fit = self.line_right_data.current_fit
 
         # -----------------------------------------------------------------
         # Save curve/line/lane data
@@ -263,7 +271,7 @@ class MasterLaneLine():
         # Curve - radius of curvature of the line in some units
         self.line_left_data.radius_of_curvature = lane_results.left_curverad
         self. line_right_data.radius_of_curvature = lane_results.right_curverad
-        # average x values of the fitted line over the last 3 iterations
+        # average x values of the fitted line over the last 5 iterations
         self.line_left_data.bestx = np.average(self.line_left_data.allx[-5:], axis=0)
         self.line_right_data.bestx = np.average(self.line_right_data.allx[-5:], axis=0)
         # x values of the last n fits of the line
@@ -292,7 +300,7 @@ class MasterLaneLine():
         logger.debug('-------------------------------------------------------------')
 
         return lane_results.left_fitx, lane_results.right_fitx, lane_results.ploty, \
-               lane_results.avg_curverad, current_stats_df
+               lane_results.avg_curverad, current_stats_df, binary_picked, method
 
     def calc_lane(self, binary_warped, left_fit, right_fit):
         """
@@ -313,6 +321,17 @@ class MasterLaneLine():
             # Given polynomial coefficients, calculate the polynomial fits for left and right lane
             left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
             right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+
+            # ------------------------------------------------------
+            # Average with previous averages
+            if len(self.line_left_data.allx) > 5 and len(self.line_right_data.allx) > 5:
+                left_temp = self.line_left_data.allx[-5:]
+                right_temp = self.line_right_data.allx[-5:]
+                left_temp.append(left_fitx)
+                right_temp.append(right_fitx)
+
+                left_fitx = np.average(left_temp, axis=0)
+                right_fitx = np.average(right_temp, axis=0)
 
             # ------------------------------------------------------
             # Now we have polynomial fits and we can calculate the radius of curvature as follows:
@@ -338,6 +357,7 @@ class MasterLaneLine():
                             np.absolute(2 * left_fit_cr[0])
             right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / \
                              np.absolute(2 * right_fit_cr[0])
+
             avg_curverad = (left_curverad + right_curverad) / 2
 
             # Calc Center Offset
@@ -369,7 +389,7 @@ class MasterLaneLine():
             issue = 'histogram could not find lane'
             logger.debug(issue)
             problem = True
-        elif curve_diff > 1000.0:
+        elif curve_diff > 3000.0:
             issue = 'BAD curve_diff: {0}'.format(curve_diff)
             logger.debug(issue)
             problem = True
@@ -377,15 +397,15 @@ class MasterLaneLine():
             issue = 'BAD avg curve: {0}'.format(avg_curverad)
             logger.debug(issue)
             problem = True
-        elif (abs(center_offset_meters) < 0.1) or (abs(center_offset_meters) > 0.9):
+        elif (abs(center_offset_meters) < 0.01) or (abs(center_offset_meters) > 0.28):
             issue = 'BAD center_offset_meters: {0}'.format(center_offset_meters)
             logger.debug(issue)
             problem = True
-        elif (lane_width_bottom > 4.4) or (lane_width_bottom < 3.2):
+        elif (lane_width_bottom > 4.0) or (lane_width_bottom < 3.2):
             issue = 'BAD lane_width_bottom: {0}'.format(lane_width_bottom)
             logger.debug(issue)
             problem = True
-        elif (lane_width_top > 4.4) or (lane_width_top < 2.0):
+        elif (lane_width_top > 4.1) or (lane_width_top < 2.0):
             issue = 'BAD lane_width_top: {0}'.format(lane_width_top)
             logger.debug(issue)
             problem = True
@@ -812,7 +832,8 @@ def run_on_video():
     white_output = video_filename + '_output.mp4'
 
     # clip1 = VideoFileClip(video_filename + '.mp4').subclip(0, 25)
-    clip1 = VideoFileClip(video_filename + '.mp4').subclip(17, 40)
+    # clip1 = VideoFileClip(video_filename + '.mp4').subclip(25, 35) # straight
+    clip1 = VideoFileClip(video_filename + '.mp4').subclip(20, 27) # shadow
     # clip1 = VideoFileClip(video_filename + '.mp4')
 
     white_clip = clip1.fl_image(laneline.process_image)  # NOTE: this function expects color images!!
