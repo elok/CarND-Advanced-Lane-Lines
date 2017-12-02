@@ -94,7 +94,8 @@ class MasterLaneLine():
         # Using the camera matrix and distortion coeff, undistort the image
         undist = cv2.undistort(src=img_data, cameraMatrix=mtx, distCoeffs=dist, newCameraMatrix=None, dst=mtx)
 
-        binary = generate_binary_hls(undist)
+        # binary = generate_binary_hls(undist)
+        binary = generate_binary_new(undist)
 
         # Warp an image using the perspective transform, M:
         binary_warped = cv2.warpPerspective(src=binary, M=M, dsize=IMG_SIZE, flags=cv2.INTER_LINEAR)
@@ -140,7 +141,7 @@ class MasterLaneLine():
                         org=(10, 110), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
             cv2.putText(img=result,
                         text='Method: {0}'.format(method),
-                        org=(10, 130), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
+                        org=(10, 140), fontFace=cv2.FONT_HERSHEY_DUPLEX, fontScale=1, color=(255, 255, 255))
         except:
             pass
 
@@ -576,6 +577,89 @@ def calibrate_camera(path):
 
     return mtx, dist
 
+def generate_binary_new(img_orig):
+    """
+    Find lane line by using HLS color space and sobel gradients
+    :param img:
+    :param s_thresh:
+    :param sx_thresh:
+    :return: binary image
+    """
+    # -------------------------------------------
+    # HLS
+    s_thresh = (170, 255)
+    sx_thresh = (20, 100)
+
+    img = np.copy(img_orig)
+    # Convert to HLS color space and separate the V channel
+    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
+    l_channel = hls[:, :, 1]
+    s_channel = hls[:, :, 2]
+    # Sobel x
+    sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
+    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
+
+    # Threshold x gradient
+    sxbinary = np.zeros_like(scaled_sobel)
+    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+
+    # Threshold color channel
+    hls_binary = np.zeros_like(s_channel)
+    hls_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
+
+    # -------------------------------------------
+    # LAB
+    s_thresh = (155, 200)
+    sx_thresh = (20, 100)
+    img = np.copy(img_orig)
+    # Convert to HLS color space and separate the V channel
+    lab = cv2.cvtColor(img, cv2.COLOR_RGB2Lab).astype(np.float)
+    b_channel = lab[:, :, 2]
+
+    # Sobel x
+    sobelx = cv2.Sobel(b_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
+    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
+
+    # Threshold x gradient
+    sxbinary = np.zeros_like(scaled_sobel)
+    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+
+    # Threshold color channel
+    lab_binary = np.zeros_like(b_channel)
+    lab_binary[(b_channel >= s_thresh[0]) & (b_channel <= s_thresh[1])] = 1
+
+    # -------------------------------------------
+    # LUV
+    # s_thresh = (0, 255)
+    # sx_thresh = (20, 100)
+    # img = np.copy(img_orig)
+    # # Convert to HLS color space and separate the V channel
+    # lab = cv2.cvtColor(img, cv2.COLOR_RGB2LUV).astype(np.float)
+    # l_channel = lab[:, :, 2]
+
+    # Sobel x
+    # sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    # abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
+    # scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
+
+    # Threshold x gradient
+    # sxbinary = np.zeros_like(scaled_sobel)
+    # sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+
+    # Threshold color channel
+    # luv_binary = np.zeros_like(l_channel)
+    # luv_binary[(l_channel >= s_thresh[0]) & (l_channel <= s_thresh[1])] = 1
+
+    # -------------------------------------------
+    # Stack each channel
+    # Note color_binary[:, :, 0] is all 0s, effectively an all black image. It might
+    # be beneficial to replace this channel with something else.
+    rgb_binary = np.zeros_like(lab_binary)
+    color_binary = np.uint8(np.dstack((hls_binary, lab_binary, luv_binary)) * 255)
+
+    return color_binary
 
 def generate_binary_hls(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     """
